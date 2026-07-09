@@ -9,11 +9,12 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import glfw
 import mujoco
+import mujoco.viewer
 import numpy as np
 
 from view_ros2_visual_meshes import OUTPUT_URDF, SOURCE_URDF, generate_visual_urdf
+from scene_utils import FLOOR_SCENE
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -136,58 +137,24 @@ def generate_runtime_xml() -> Path:
 
 
 def write_scene(runtime_xml: Path) -> Path:
-    SCENE_XML.write_text(
-        f"""<mujoco model="openflex_control_scene">
-  <compiler angle="radian"/>
-  <option timestep="0.002" gravity="0 0 0"/>
+    """Write a scene that includes the runtime XML + mocap viz bodies."""
+    scene_tree = ET.fromstring(FLOOR_SCENE)
 
-  <asset>
-    <texture name="studio_sky" type="skybox" builtin="gradient"
-             rgb1="0.08 0.10 0.14" rgb2="0.01 0.012 0.018"
-             width="512" height="512"/>
-    <texture name="floor_grid" type="2d" builtin="checker"
-             rgb1="0.16 0.18 0.21" rgb2="0.24 0.27 0.31"
-             width="1024" height="1024" mark="edge" markrgb="0.55 0.60 0.68"/>
-    <material name="floor_mat" texture="floor_grid" texrepeat="7 7"
-              reflectance="0.22" shininess="0.35" specular="0.25"/>
-    <material name="wall_mat" rgba="0.10 0.12 0.16 1" reflectance="0.08"/>
-    <material name="platform_mat" rgba="0.20 0.22 0.25 1" reflectance="0.18" shininess="0.45"/>
-  </asset>
+    worldbody = scene_tree.find("worldbody")
+    if worldbody is not None:
+        # Gripper center viz spheres
+        lv = ET.SubElement(worldbody, "body", {"name": "left_gripper_center_viz", "pos": "0 0 0", "mocap": "true"})
+        ET.SubElement(lv, "geom", {"name": "left_gripper_center_viz", "type": "sphere",
+                                   "size": "0.015", "rgba": "0 1 1 0.8",
+                                   "contype": "0", "conaffinity": "0"})
+        rv = ET.SubElement(worldbody, "body", {"name": "right_gripper_center_viz", "pos": "0 0 0", "mocap": "true"})
+        ET.SubElement(rv, "geom", {"name": "right_gripper_center_viz", "type": "sphere",
+                                   "size": "0.015", "rgba": "1 0.6 0 0.8",
+                                   "contype": "0", "conaffinity": "0"})
 
-  <visual>
-    <headlight diffuse="0.55 0.55 0.55" ambient="0.24 0.24 0.26" specular="0.25 0.25 0.25"/>
-    <map znear="0.01" zfar="8"/>
-    <scale forcewidth="0.06" contactwidth="0.05"/>
-    <rgba haze="0.03 0.035 0.045 1"/>
-  </visual>
+    ET.SubElement(scene_tree, "include", {"file": str(runtime_xml)})
 
-  <worldbody>
-    <light name="key_light" pos="-1.4 -2.2 3.2" dir="0.35 0.55 -1" directional="true"
-           diffuse="0.95 0.92 0.86" specular="0.35 0.35 0.35"/>
-    <light name="fill_light" pos="1.8 1.4 2.2" dir="-0.45 -0.35 -1" directional="true"
-           diffuse="0.35 0.45 0.65" specular="0.12 0.12 0.16"/>
-    <light name="rim_light" pos="0 2.2 1.8" dir="0 -1 -0.45" directional="true"
-           diffuse="0.55 0.65 0.85" specular="0.20 0.22 0.28"/>
-
-    <geom name="floor" type="plane" pos="0 0 -0.012" size="2.4 2.4 0.02" material="floor_mat"/>
-    <geom name="back_wall" type="box" pos="0 0.95 0.78" size="2.4 0.025 0.80" material="wall_mat" contype="0" conaffinity="0"/>
-    <geom name="left_wall" type="box" pos="-1.25 0 0.55" size="0.025 1.15 0.56" material="wall_mat" contype="0" conaffinity="0"/>
-    <geom name="right_wall" type="box" pos="1.25 0 0.55" size="0.025 1.15 0.56" material="wall_mat" contype="0" conaffinity="0"/>
-    <geom name="display_platform" type="cylinder" pos="0 0 -0.006" size="0.72 0.012" material="platform_mat" contype="0" conaffinity="0"/>
-
-    <body name="left_gripper_center_viz" pos="0 0 0" mocap="true">
-      <geom name="left_gripper_center_viz" type="sphere" size="0.015" rgba="0 1 1 0.8" contype="0" conaffinity="0"/>
-    </body>
-    <body name="right_gripper_center_viz" pos="0 0 0" mocap="true">
-      <geom name="right_gripper_center_viz" type="sphere" size="0.015" rgba="1 0.6 0 0.8" contype="0" conaffinity="0"/>
-    </body>
-  </worldbody>
-
-  <include file="{runtime_xml.name}"/>
-</mujoco>
-""",
-        encoding="utf-8",
-    )
+    SCENE_XML.write_text(ET.tostring(scene_tree, encoding="utf-8").decode(), encoding="utf-8")
     return SCENE_XML
 
 
@@ -217,22 +184,21 @@ def main() -> None:
     state = {
         "left_open": True,
         "right_open": True,
-        "running": True,
     }
 
     for actuator_id in range(model.nu):
         joint_id = model.actuator_trnid[actuator_id, 0]
         data.ctrl[actuator_id] = data.qpos[joint_qpos(model, joint_id)]
 
-    def apply_gripper_targets() -> None:
-        left_targets = [pair[1] if state["left_open"] else pair[0] for pair in left_open_close]
-        right_targets = [pair[1] if state["right_open"] else pair[0] for pair in right_open_close]
-        for qpos_id, joint_id, target in zip(left_qpos, left_jids, left_targets):
-            data.qpos[qpos_id] += GRIPPER_SMOOTH * (target - data.qpos[qpos_id])
-            data.qpos[qpos_id] = clamp_joint(model, joint_id, data.qpos[qpos_id])
-        for qpos_id, joint_id, target in zip(right_qpos, right_jids, right_targets):
-            data.qpos[qpos_id] += GRIPPER_SMOOTH * (target - data.qpos[qpos_id])
-            data.qpos[qpos_id] = clamp_joint(model, joint_id, data.qpos[qpos_id])
+    model.opt.gravity[:] = 0.0
+    mujoco.mj_forward(model, data)
+
+    print("✅ OpenFlex 控制脚本已加载")
+    print("快捷键: O/C 双夹爪开合, Z/X 左夹爪, N/M 右夹爪")
+    print(f"nq={model.nq} nv={model.nv} nu={model.nu} nbody={model.nbody} ngeom={model.ngeom}")
+
+    if args.check:
+        return
 
     def key_callback(keycode: int) -> None:
         try:
@@ -259,98 +225,29 @@ def main() -> None:
         elif key == "M":
             state["right_open"] = False
             print("👉 右夹爪闭合")
-        elif key == "Q":
-            state["running"] = False
-            print("👉 退出")
 
-    mujoco.mj_forward(model, data)
-    print("✅ OpenFlex 控制脚本已加载")
-    print("快捷键: O/C 双夹爪开合, Z/X 左夹爪, N/M 右夹爪, Q 退出")
-    print(f"nq={model.nq} nv={model.nv} nu={model.nu} nbody={model.nbody} ngeom={model.ngeom}")
+    with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
+        viewer.cam.lookat[:] = [0.0, -0.02, 0.58]
+        viewer.cam.distance = 2.25
+        viewer.cam.elevation = -16
+        viewer.cam.azimuth = 180
 
-    if args.check:
-        return
+        while viewer.is_running():
+            # Apply gripper targets
+            left_targets = [pair[1] if state["left_open"] else pair[0] for pair in left_open_close]
+            right_targets = [pair[1] if state["right_open"] else pair[0] for pair in right_open_close]
+            for qpos_id, joint_id, target in zip(left_qpos, left_jids, left_targets):
+                data.qpos[qpos_id] += GRIPPER_SMOOTH * (target - data.qpos[qpos_id])
+                data.qpos[qpos_id] = clamp_joint(model, joint_id, data.qpos[qpos_id])
+            for qpos_id, joint_id, target in zip(right_qpos, right_jids, right_targets):
+                data.qpos[qpos_id] += GRIPPER_SMOOTH * (target - data.qpos[qpos_id])
+                data.qpos[qpos_id] = clamp_joint(model, joint_id, data.qpos[qpos_id])
 
-    # ---- 自建 glfw 窗口 + MuJoCo 底层渲染（Wayland 下可正常退出/交互）----
-    if not glfw.init():
-        raise RuntimeError("glfw 初始化失败")
-
-    WIDTH, HEIGHT = 1280, 720
-    window = glfw.create_window(WIDTH, HEIGHT, "OpenFlex Control", None, None)
-    if not window:
-        glfw.terminate()
-        raise RuntimeError("无法创建窗口")
-
-    glfw.make_context_current(window)
-
-    mouse = {
-        "x": float(WIDTH) / 2,
-        "y": float(HEIGHT) / 2,
-        "last_x": float(WIDTH) / 2,
-        "last_y": float(HEIGHT) / 2,
-        "left": False,
-    }
-
-    def cb_cursor(w, x, y):
-        mouse["x"], mouse["y"] = x, y
-
-    def cb_mouse(w, button, action, mods):
-        if button == glfw.MOUSE_BUTTON_LEFT:
-            mouse["left"] = (action == glfw.PRESS)
-            if action == glfw.PRESS:
-                mouse["last_x"], mouse["last_y"] = mouse["x"], mouse["y"]
-
-    def cb_key(w, key, scancode, action, mods):
-        # glfw 的 KEY_A..KEY_Z 等于大写字母 ASCII 码，可直接复用原回调
-        if action == glfw.PRESS and 65 <= key <= 90:
-            key_callback(key)
-            if key in (glfw.KEY_Q, glfw.KEY_ESCAPE):
-                glfw.set_window_should_close(w, True)
-
-    def cb_scroll(w, xoff, yoff):
-        cam.distance *= math.exp(0.1 * yoff)
-        cam.distance = max(0.15, min(20.0, cam.distance))
-
-    glfw.set_cursor_pos_callback(window, cb_cursor)
-    glfw.set_mouse_button_callback(window, cb_mouse)
-    glfw.set_key_callback(window, cb_key)
-    glfw.set_scroll_callback(window, cb_scroll)
-
-    cam = mujoco.MjvCamera()
-    cam.lookat[:] = [0.0, -0.02, 0.58]
-    cam.distance = 2.25
-    cam.elevation = -16
-    cam.azimuth = 180
-    opt = mujoco.MjvOption()
-    scn = mujoco.MjvScene(model, maxgeom=10000)
-    con = mujoco.MjrContext(model, mujoco.mjtFontScale.mjFONTSCALE_150)
-
-    while not glfw.window_should_close(window):
-        # 左键拖动旋转视角
-        if mouse["left"]:
-            dx = mouse["x"] - mouse["last_x"]
-            dy = mouse["y"] - mouse["last_y"]
-            cam.azimuth -= dx * 0.5
-            cam.elevation -= dy * 0.5
-            cam.elevation = max(-89.0, min(89.0, cam.elevation))
-        mouse["last_x"], mouse["last_y"] = mouse["x"], mouse["y"]
-
-        apply_gripper_targets()
-        mujoco.mj_step(model, data)
-        data.mocap_pos[left_viz_mocap] = get_body_center(model, data, LEFT_FINGER_BODIES)
-        data.mocap_pos[right_viz_mocap] = get_body_center(model, data, RIGHT_FINGER_BODIES)
-
-        fb_w, fb_h = glfw.get_framebuffer_size(window)
-        mujoco.mjv_updateScene(model, data, opt, None, cam, mujoco.mjtCatBit.mjCAT_ALL, scn)
-        mujoco.mjr_render(mujoco.MjrRect(0, 0, fb_w, fb_h), scn, con)
-        glfw.swap_buffers(window)
-        try:
-            glfw.poll_events()
-        except KeyboardInterrupt:
-            break
-        time.sleep(model.opt.timestep)
-
-    glfw.terminate()
+            mujoco.mj_step(model, data)
+            data.mocap_pos[left_viz_mocap] = get_body_center(model, data, LEFT_FINGER_BODIES)
+            data.mocap_pos[right_viz_mocap] = get_body_center(model, data, RIGHT_FINGER_BODIES)
+            viewer.sync()
+            time.sleep(model.opt.timestep)
 
 
 if __name__ == "__main__":
