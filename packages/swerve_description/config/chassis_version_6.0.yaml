@@ -1,0 +1,7 @@
+# 底盘运动学参数唯一来源
+# 修改底盘几何参数时只需改这一个文件
+# 所有 controllers YAML 和 launch 文件均从此处读取
+chassis:
+  wheel_radius: 0.075    # 车轮半径 (m)
+  wheelbase: 0.42        # 轴距：前后轮中心距 (m)，派生 half_wheelbase=0.21
+  track_width: 0.547      # 轮距：左右轮中心距 (m)，派生 half_track=0.26

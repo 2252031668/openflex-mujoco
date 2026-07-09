@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
-"""convert.py — 将 ROS2 URDF 转换为自包含、可直接用 MuJoCo viewer 打开的成品 MJCF。
+"""convert.py — 将 ROS2 URDF（支持完整全身模型）转换为自包含、可直接用 MuJoCo viewer 打开的成品 MJCF。
 
-把原本用于 ROS/RViz 的 ``openflex_robot.urdf`` 编译成 MuJoCo 模型，并注入：
+把原本用于 ROS/RViz 的 URDF（例如 openflex_integrated_robot.urdf：移动底盘 + 升降 + 双臂 + 头部）
+编译成 MuJoCo 模型，并注入：
   * 地板 + 灯光（场景自带，viewer 直接打开即可看）
   * 夹爪联动 ``<equality>``（URDF 的 ``<mimic>`` 被 MuJoCo 编译时丢弃，这里补回）
-  * 位置 actuator（14 个臂关节 + 2 个主手指 finger_joint1，nu=16；
-    finger_joint2 由 equality 约束驱动，不单独加 actuator）
+  * 位置 actuator：双臂 14 关节 + 2 主手指 + 头部 2 + 升降 1 + 转向 4，nu=23
+    （finger_joint2 由 equality 约束驱动，轮子为连续关节不加 actuator 仅靠阻尼稳定）
 
 网格统一收敛到 ``mujoco_meshes/``，成品 XML 用相对路径引用，因此可直接拷贝给
 任何装了 MuJoCo 的环境用最普通的 viewer 显示，无需中间文件。
+
+``package://<pkg>/`` 前缀会自动映射到本地 ``packages/<pkg>/`` 目录，因此多 package 的
+完整模型也能直接转换。
 
 用法:
     python convert.py            # 生成 openflex_mujoco.xml
     python convert.py --check    # 仅生成并校验，不进入交互
 
-仅当 openflex_robot.urdf 或网格需要更新时重跑本脚本即可。
+仅当源 URDF 或网格需要更新时重跑本脚本即可。
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
-import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -31,29 +34,90 @@ import trimesh
 
 
 ROOT = Path(__file__).resolve().parent
-SOURCE_URDF = ROOT / "openflex_robot.urdf"
+SOURCE_URDF = ROOT / "openflex_integrated_robot.urdf"
 OUTPUT_XML = ROOT / "openflex_mujoco.xml"
 MUJOCO_MESH_DIR = ROOT / "mujoco_meshes"
-PACKAGE_PREFIX = "package://openarmx_description/"
+PACKAGES_DIR = ROOT / "packages"
 
-# 整个机器人绕 Z 轴旋转，使双臂正对默认视角
+# 把 package://<pkg>/ 映射到本地的 packages/<pkg>/（自动发现，支持多 package 的完整模型）
+PACKAGE_PREFIXES: dict[str, Path] = {}
+if PACKAGES_DIR.is_dir():
+    for _sub in sorted(PACKAGES_DIR.iterdir()):
+        if _sub.is_dir():
+            PACKAGE_PREFIXES[f"package://{_sub.name}/"] = _sub
+
+# 整个机器人绕 Z 轴旋转，使机器人正对默认视角
 ROBOT_YAW = "-1.57079632679"
 
-# actuator 增益
+# --------------------------------------------------------------------------- #
+# 执行器增益（沿用双臂版本的臂/手指参数，并为升降/头部/转向补充合理值）
+# --------------------------------------------------------------------------- #
 ARM_SERVO_KP = 180
 FINGER_SERVO_KP = 80
+HEAD_SERVO_KP = 40
+LIFT_SERVO_KP = 300
+STEER_SERVO_KP = 20
+
+# 关节物理参数：damping / armature / frictionloss
 ARM_JOINT_DAMPING = 18.0
 ARM_JOINT_ARMATURE = 0.03
 ARM_JOINT_FRICTION = 0.15
 FINGER_JOINT_DAMPING = 2.0
 FINGER_JOINT_ARMATURE = 0.002
 FINGER_JOINT_FRICTION = 0.02
+HEAD_JOINT_DAMPING = 2.0
+HEAD_JOINT_ARMATURE = 0.01
+HEAD_JOINT_FRICTION = 0.05
+LIFT_JOINT_DAMPING = 60.0
+LIFT_JOINT_ARMATURE = 0.1
+LIFT_JOINT_FRICTION = 2.0
+STEER_JOINT_DAMPING = 3.0
+STEER_JOINT_ARMATURE = 0.005
+STEER_JOINT_FRICTION = 0.1
+WHEEL_JOINT_DAMPING = 1.0
+WHEEL_JOINT_ARMATURE = 0.02
+WHEEL_JOINT_FRICTION = 0.0
 
 # MuJoCo 接触/约束求解器参数（夹爪联动用）
 EQUALITY_SOLIMP = "0.95 0.99 0.001"
 EQUALITY_SOLREF = "0.005 1"
 
-ARM_JOINT_PREFIXES = ("openarmx_left_joint", "openarmx_right_joint")
+
+def classify_joint(name: str) -> str | None:
+    """把关节名归类为物理/执行器处理类别。"""
+    if name.endswith("finger_joint2"):
+        return "finger_mimic"          # 由 equality 约束驱动，不加 actuator
+    if "finger_joint1" in name:
+        return "finger"
+    if name.startswith("openarmx_left_joint") or name.startswith("openarmx_right_joint"):
+        return "arm"
+    if name.startswith("openarmx_head_"):
+        return "head"
+    if name == "lift_joint":
+        return "lift"
+    if "steering" in name:
+        return "steer"
+    if "wheel" in name:
+        return "wheel"                 # 连续关节，仅靠阻尼稳定
+    return None
+
+
+JOINT_PHYSICS: dict[str, tuple[float, float, float]] = {
+    "arm":    (ARM_JOINT_DAMPING, ARM_JOINT_ARMATURE, ARM_JOINT_FRICTION),
+    "finger": (FINGER_JOINT_DAMPING, FINGER_JOINT_ARMATURE, FINGER_JOINT_FRICTION),
+    "head":   (HEAD_JOINT_DAMPING, HEAD_JOINT_ARMATURE, HEAD_JOINT_FRICTION),
+    "lift":   (LIFT_JOINT_DAMPING, LIFT_JOINT_ARMATURE, LIFT_JOINT_FRICTION),
+    "steer":  (STEER_JOINT_DAMPING, STEER_JOINT_ARMATURE, STEER_JOINT_FRICTION),
+    "wheel":  (WHEEL_JOINT_DAMPING, WHEEL_JOINT_ARMATURE, WHEEL_JOINT_FRICTION),
+}
+
+ACTUATOR_KP: dict[str, float] = {
+    "arm": ARM_SERVO_KP,
+    "finger": FINGER_SERVO_KP,
+    "head": HEAD_SERVO_KP,
+    "lift": LIFT_SERVO_KP,
+    "steer": STEER_SERVO_KP,
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -74,8 +138,9 @@ def ensure_mujoco_compiler(root: ET.Element) -> None:
 
 
 def convert_package_uri(filename: str) -> str:
-    if filename.startswith(PACKAGE_PREFIX):
-        return str(ROOT / filename.removeprefix(PACKAGE_PREFIX))
+    for prefix, base in PACKAGE_PREFIXES.items():
+        if filename.startswith(prefix):
+            return str(base / filename.removeprefix(prefix))
     return filename
 
 
@@ -119,49 +184,41 @@ def read_dae_diffuse_colors(source_path: Path) -> list[str]:
 
 
 def flat_mesh_name(rel: Path, scale: list[float], part_index: int | None = None) -> str:
-    """把 'meshes/body/v10/visual/body_link0.dae' 摊平成唯一文件名
-    'body_v10_visual_body_link0.obj'（dae 多 part 追加 _partN）。"""
+    """把 'packages/x/meshes/arm/v10/visual/link0.dae' 摊平成唯一文件名。"""
     base = "_".join(rel.with_suffix("").parts)
     suffix = scale_suffix(scale)
     if part_index is not None:
         return f"{base}{suffix}_part{part_index}.obj"
-    return f"{base}{suffix}{rel.suffix}"  # stl 保留原后缀
+    return f"{base}{suffix}.obj"  # 统一输出 obj
 
 
-def convert_visual_mesh(filename: str, scale: list[float]) -> list[tuple[str, str | None]]:
-    """返回 [(相对 ROOT 的 mesh 路径, 颜色), ...]，并把网格写到 mujoco_meshes/。"""
+def convert_visual_mesh(filename: str, scale: list[float], urdf_color: str | None = None
+                        ) -> list[tuple[str, str | None]]:
+    """返回 [(相对 ROOT 的 mesh 路径, 颜色), ...]，并把网格写到 mujoco_meshes/。
+
+    所有网格都经 trimesh 转成 .obj（dae 提取自身 diffuse 颜色；stl 等用 URDF 内联材质颜色），
+    这样 ASCII / 二进制 STL 都能被正确处理，并统一出口格式。
+    """
     source_path = Path(convert_package_uri(filename))
     if not source_path.exists():
         raise FileNotFoundError(source_path)
-    try:
-        rel = source_path.relative_to(ROOT / "meshes")
-    except ValueError:
-        rel = Path(source_path.name)
+    rel = source_path.relative_to(ROOT)
+    is_dae = source_path.suffix.lower() == ".dae"
+    colors = read_dae_diffuse_colors(source_path) if is_dae else []
 
-    if source_path.suffix.lower() == ".dae":
-        colors = read_dae_diffuse_colors(source_path)
-        mesh_or_scene = trimesh.load(source_path)
-        meshes = mesh_or_scene.dump(concatenate=False) if isinstance(mesh_or_scene, trimesh.Scene) else [mesh_or_scene]
-        outputs = []
-        for i, part in enumerate(meshes):
-            flat = flat_mesh_name(rel, scale, part_index=i)
-            out_path = MUJOCO_MESH_DIR / flat
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            if not out_path.exists():
-                print(f"🔄 转换 dae -> obj: {source_path.name} [{i}] -> {flat}")
-                bake_negative_scale(part.copy(), scale).export(out_path)
-            color = colors[i] if i < len(colors) else (colors[-1] if colors else None)
-            outputs.append((f"mujoco_meshes/{flat}", color))
-        return outputs
-
-    # 非 dae（stl 等）：原样复制，扁平存放
-    flat = flat_mesh_name(rel, scale)
-    out_path = MUJOCO_MESH_DIR / flat
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    if not out_path.exists():
-        print(f"📁 复制网格: {source_path.name} -> {flat}")
-        shutil.copy2(source_path, out_path)
-    return [(f"mujoco_meshes/{flat}", None)]
+    mesh_or_scene = trimesh.load(source_path)
+    meshes = mesh_or_scene.dump(concatenate=False) if isinstance(mesh_or_scene, trimesh.Scene) else [mesh_or_scene]
+    outputs = []
+    for i, part in enumerate(meshes):
+        flat = flat_mesh_name(rel, scale, part_index=i if len(meshes) > 1 else None)
+        out_path = MUJOCO_MESH_DIR / flat
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if not out_path.exists():
+            print(f"🔄 转换 {source_path.suffix} -> obj: {source_path.name} [{i}] -> {flat}")
+            bake_negative_scale(part.copy(), scale).export(out_path)
+        color = (colors[i] if i < len(colors) else (colors[-1] if colors else None)) if is_dae else urdf_color
+        outputs.append((f"mujoco_meshes/{flat}", color))
+    return outputs
 
 
 def set_visual_material(visual: ET.Element, color: str | None, name: str) -> None:
@@ -175,13 +232,38 @@ def set_visual_material(visual: ET.Element, color: str | None, name: str) -> Non
     visual.append(material)
 
 
+def _urdf_visual_color(visual: ET.Element) -> str | None:
+    """提取 visual 内联材质颜色（如 URDF 中 <material><color rgba='...'/></material>）。"""
+    mat = visual.find("material")
+    if mat is None:
+        return None
+    color = mat.find("color")
+    if color is None:
+        return None
+    return color.get("rgba")
+
+
 def generate_visual_urdf(source_urdf: Path, output_urdf: Path) -> Path:
-    """去掉 collision、把每个 visual mesh 换成 MuJoCo 友好的 obj（相对路径）。"""
+    """去掉 collision、剥离 ros2_control、把每个 visual mesh 换成 MuJoCo 友好的引用（相对路径）。"""
     tree = ET.parse(source_urdf)
     root = tree.getroot()
     ensure_mujoco_compiler(root)
 
+    # MuJoCo 的 URDF 解析器不认识 <ros2_control>，必须先剥离
+    for rc in list(root.findall("ros2_control")):
+        root.remove(rc)
+
     for link in root.findall("link"):
+        # 运动连杆必须有质量/惯量，否则 MuJoCo 报 mjMINVAL 错误；
+        # 给缺失 <inertial> 的 link 补一个合理的默认值（视觉连杆常漏写）
+        if link.find("inertial") is None:
+            inertial = ET.SubElement(link, "inertial")
+            ET.SubElement(inertial, "origin", {"xyz": "0 0 0", "rpy": "0 0 0"})
+            ET.SubElement(inertial, "mass", {"value": "0.5"})
+            ET.SubElement(inertial, "inertia",
+                          {"ixx": "0.002", "iyy": "0.002", "izz": "0.002",
+                           "ixy": "0", "ixz": "0", "iyz": "0"})
+
         for collision in list(link.findall("collision")):
             link.remove(collision)
         for visual in list(link.findall("visual")):
@@ -192,7 +274,8 @@ def generate_visual_urdf(source_urdf: Path, output_urdf: Path) -> Path:
             if not filename:
                 continue
             scale = parse_scale(mesh.get("scale", ""))
-            parts = convert_visual_mesh(filename, scale)
+            urdf_color = _urdf_visual_color(visual)
+            parts = convert_visual_mesh(filename, scale, urdf_color)
             link.remove(visual)
             for i, (mesh_path, color) in enumerate(parts):
                 vp = copy.deepcopy(visual)
@@ -243,18 +326,17 @@ FLOOR_LIGHTS = """<light name="key_light" pos="-1.4 -2.2 3.2" dir="0.35 0.55 -1"
 def apply_joint_dynamics(root: ET.Element) -> None:
     for joint in root.findall(".//joint"):
         name = joint.get("name", "")
-        if name.startswith(ARM_JOINT_PREFIXES):
-            joint.set("damping", str(ARM_JOINT_DAMPING))
-            joint.set("armature", str(ARM_JOINT_ARMATURE))
-            joint.set("frictionloss", str(ARM_JOINT_FRICTION))
-        elif "finger" in name:
-            joint.set("damping", str(FINGER_JOINT_DAMPING))
-            joint.set("armature", str(FINGER_JOINT_ARMATURE))
-            joint.set("frictionloss", str(FINGER_JOINT_FRICTION))
+        kind = classify_joint(name)
+        if kind is None or kind == "finger_mimic":
+            continue
+        damping, armature, friction = JOINT_PHYSICS[kind]
+        joint.set("damping", str(damping))
+        joint.set("armature", str(armature))
+        joint.set("frictionloss", str(friction))
 
 
 def build_runtime_xml() -> Path:
-    # 1) URDF -> 中间 URDF（相对路径网格）
+    # 1) URDF -> 中间 URDF（相对路径网格，剥离 ros2_control）
     tmp_urdf = ROOT / "_tmp_convert.urdf"
     generate_visual_urdf(SOURCE_URDF, tmp_urdf)
 
@@ -317,19 +399,18 @@ def build_runtime_xml() -> Path:
         })
         added_eq += 1
 
-    # 7) position actuator：14 臂关节 + 2 主手指（finger_joint1）
+    # 7) position actuator：双臂 14 + 主手指 2 + 头部 2 + 升降 1 + 转向 4
     actuator = ET.SubElement(root, "actuator")
     added = 0
     for jid in range(model.njnt):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, jid)
         if not name:
             continue
-        if name.endswith("finger_joint2"):
-            continue
-        if not (name.startswith(ARM_JOINT_PREFIXES) or "finger" in name):
+        kind = classify_joint(name)
+        if kind is None or kind not in ACTUATOR_KP:
             continue
         lo, hi = model.jnt_range[jid]
-        kp = ARM_SERVO_KP if name.startswith(ARM_JOINT_PREFIXES) else FINGER_SERVO_KP
+        kp = ACTUATOR_KP[kind]
         ET.SubElement(actuator, "position", {
             "name": f"{name}_pos",
             "joint": name,

@@ -1,7 +1,8 @@
 # OpenFlex MuJoCo 中文说明
 
-本项目把原本用于 **ROS2 / RViz** 的 OpenFlex v10 双臂机械臂模型，转换成可直接用
-**最普通的 MuJoCo viewer** 打开的成品 MJCF，并在此基础上提供双臂控制与夹爪联动。
+本项目把原本用于 **ROS2 / RViz** 的 OpenFlex v10 **完整全身模型**（移动底盘 + 升降 +
+双臂 + 头部）转换成可直接用 **最普通的 MuJoCo viewer** 打开的成品 MJCF，并在此基础上提供
+双臂 / 头部 / 升降控制与夹爪联动。
 
 核心思路：把「URDF → MuJoCo 编译 + 注入 actuator / 夹爪联动」这一步**一次性固化**成一个自包含成品 XML，
 viewer 只负责加载显示，不再依赖任何运行时中间文件。
@@ -10,12 +11,14 @@ viewer 只负责加载显示，不再依赖任何运行时中间文件。
 
 ## 🎯 1. 项目目标
 
-- 把 ROS2 / xacro / URDF 模型迁移到 MuJoCo 可加载模型
-- 自动处理 `package://openarmx_description/...` 这类 ROS 路径
-- 把 `.dae` visual mesh 转换 / 拆分 / 镜像烘焙后收敛到 `mujoco_meshes/`
+- 把 ROS2 / xacro / URDF 完整全身模型迁移到 MuJoCo 可加载模型
+- 自动处理 `package://<pkg>/...` 这类 ROS 路径（自动映射到本地 `packages/<pkg>/`，支持多 package）
+- 把所有视觉网格（`.dae` / `.stl`，含 ASCII STL）经 trimesh 转成 `.obj` 并收敛到 `mujoco_meshes/`
+- 剥离 MuJoCo 不识别的 `<ros2_control>` 标签
+- 给缺失 `<inertial>` 的运动连杆补默认惯量（如头部 pitch/yaw 连杆）
 - 把 URDF 的 `<mimic>`（被 MuJoCo 编译时丢弃）用 `<equality>` 约束补回，实现夹爪联动
 - 生成一个自包含的成品 XML，可用任意 MuJoCo viewer 直接打开
-- 提供原生 viewer（拖滑块控制关节）
+- 提供原生 viewer（拖滑块控制关节，重力默认关闭以保证静止）
 
 ---
 
@@ -69,38 +72,42 @@ python3 viewer.py  --check
 .
 ├── README_CN.md
 ├── README.md
-├── convert.py                 # 转换程序：URDF -> 自包含成品 MJCF
-├── viewer.py                  # 原生 MuJoCo viewer（加载成品 XML）
-├── openflex_robot.urdf        # 源：ROS2 导出的原始 URDF
-├── openflex_mujoco.xml        # 产物：自包含成品 MJCF（含 actuator/联动/地板/灯光）
-├── meshes/                    # 源：ROS2 原始 mesh（.dae / .stl）
-└── mujoco_meshes/             # 产物：转换后的 MuJoCo 友好网格（.obj / .stl，相对路径引用）
+├── convert.py                       # 转换程序：URDF -> 自包含成品 MJCF
+├── viewer.py                        # 原生 MuJoCo viewer（加载成品 XML）
+├── openflex_integrated_robot.urdf   # 源：ROS2 导出的完整全身 URDF
+├── packages/                        # 源：各 package 的原始 mesh（.dae / .stl，由 git-lfs 管理）
+├── openflex_mujoco.xml              # 产物(生成)：自包含成品 MJCF（含 actuator/联动/地板/灯光）
+└── mujoco_meshes/                   # 产物(生成)：转换后的 MuJoCo 友好网格（.obj，相对路径引用）
 ```
 
-> `openflex_mujoco.xml` 与 `mujoco_meshes/` 都由 `convert.py` 生成；只有源 URDF / mesh 或参数
-> 改动时才需要重跑 `convert.py`。`viewer.py` 不再产生任何中间文件。
+> `openflex_mujoco.xml` 与 `mujoco_meshes/` 都是 **`convert.py` 生成的**，已被 `.gitignore` 忽略；
+> 只有源 URDF / mesh 或参数改动时才需要重跑 `convert.py`。`viewer.py` 不再产生任何中间文件。
+> 源网格 `packages/` 体积较大，已用 **git-lfs** 跟踪（`.stl` / `.STL` / `.dae`）。
 
 ---
 
 ## 📘 5. 核心文件说明
 
-### `openflex_robot.urdf`
+### `openflex_integrated_robot.urdf`
 
-ROS2 导出的原始双臂 URDF，是整个工程的输入。其中夹爪用 `<mimic>` 描述联动，
-但 MuJoCo 的 URDF 导入器会**静默丢弃**该标签，所以联动在转换时单独补回。
+ROS2 导出的完整全身 URDF（底盘 + 升降 + 双臂 + 头部），是整个工程的输入。它引用了多个
+`package://<pkg>/` 前缀的网格，转换时由 `convert.py` 自动映射到本地 `packages/<pkg>/`。
+其中夹爪用 `<mimic>` 描述联动，但 MuJoCo 的 URDF 导入器会**静默丢弃**该标签，所以联动在
+转换时单独补回。
 
 ### `convert.py`
 
 转换程序，只负责「编译 + 注入」，不涉及显示：
 
-1. 去掉 collision、把每个 visual `.dae` 拆成 `.obj`（保留颜色），负缩放烘焙进网格
-2. 编译成 MuJoCo 模型，序列化为 MJCF
-3. 合并地板 + studio 风格灯光
-4. 把机器人整体包进一个 `yaw root` body（绕 Z 轴旋转到正对默认视角）
-5. 注入 `<equality>` 夹爪联动：每个 `finger_joint2` 跟随对应 `finger_joint1`
-6. 注入 position actuator：14 个臂关节 + 2 个主手指（`finger_joint1`），**`nu=16`**
-   （`finger_joint2` 由 equality 约束驱动，不加 actuator）
-7. 网格路径统一收敛到 `mujoco_meshes/`，写成相对路径，成品 XML 可直接拷贝分发
+1. 剥离 `<ros2_control>`、去掉 collision、给缺失惯量的运动连杆补默认惯量
+2. 把每个 visual 网格（`.dae` / 任意 `.stl` 含 ASCII）经 trimesh 转成 `.obj`（保留颜色、负缩放烘焙进网格）
+3. 编译成 MuJoCo 模型，序列化为 MJCF
+4. 合并地板 + studio 风格灯光
+5. 把机器人整体包进一个 `yaw root` body（绕 Z 轴旋转到正对默认视角）
+6. 注入 `<equality>` 夹爪联动：每个 `finger_joint2` 跟随对应 `finger_joint1`
+7. 注入 position actuator：**`nu=23`**（14 臂关节 + 2 主手指 + 2 头部 + 1 升降 + 4 转向；
+   连续轮关节不加 actuator，仅靠阻尼稳定；`finger_joint2` 由 equality 约束驱动）
+8. 网格路径统一收敛到 `mujoco_meshes/`，写成相对路径，成品 XML 可直接拷贝分发
 
 产物 `openflex_mujoco.xml` 是**自包含**的，可被 `python -m mujoco.viewer openflex_mujoco.xml`
 这类最普通的 MuJoCo viewer 直接打开。
@@ -144,7 +151,7 @@ MuJoCo 导入 URDF 时丢弃 `<mimic>`，于是两个手指完全独立。`conve
 python3 convert.py --check
 ```
 
-正常应看到 `nu=16`（14 臂 + 2 主手指）。若只有 `nu=14`，说明夹爪 actuator 没加进去，重跑 `convert.py`。
+正常应看到 `nu=23`（14 臂 + 2 主手指 + 2 头部 + 1 升降 + 4 转向）。若数量不对，说明 actuator 没注入完整，重跑 `convert.py`。
 
 ### 3. 模型在窗口里朝向不对
 

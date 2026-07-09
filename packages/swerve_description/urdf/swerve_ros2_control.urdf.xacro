@@ -1,0 +1,129 @@
+<?xml version="1.0"?>
+<!--
+  @File    swerve_ros2_control.urdf.xacro
+  @Time    2026/04/17
+  @Author  OpenArmX
+  @Version 1.1
+  @Desc    ros2_control 硬件接口配置
+           转向：灵足时代 RS06（CAN5，扩展帧，位置模式）
+           驱动：和利时 UM 系列伺服轮毂一体机（CAN4，CANopen CiA402 PV 速度模式）
+                 参考：UM10540，21 位绝对值编码器，330rpm 最高转速，11N·m 额定转矩
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <ros2_control name="swerve_drive_system" type="system">
+    <hardware>
+      <xacro:if value="$(arg use_mock)">
+        <plugin>fake_components/GenericSystem</plugin>
+        <param name="fake_sensor_commands">false</param>
+        <param name="state_following_offset">0.0</param>
+      </xacro:if>
+      <xacro:unless value="$(arg use_mock)">
+        <plugin>swerve_hardware/SwerveDriveHardware</plugin>
+        <param name="steering_can_interface">$(arg steering_can_interface)</param>
+        <param name="driving_can_interface">$(arg driving_can_interface)</param>
+        <!-- UM 一体机编码器：21 位绝对值 = 2^21 counts/rev -->
+        <param name="um_position_resolution">2097152</param>
+        <param name="wheel_radius">${wheel_radius}</param>
+        <!-- UM10540 额定最高转速 330 rpm（厂家手册上限）。实际使用可按机械负载再降低 -->
+        <param name="um_max_speed_rpm">330</param>
+        <!-- CANopen PV 加减速：0->3000rpm 时间，单位 ms -->
+        <param name="um_profile_accel_ms">1000</param>
+        <param name="um_profile_decel_ms">1000</param>
+        <!-- RS06 转向最大速度 (rad/s)，写入电机 LIMIT_SPD 寄存器 -->
+        <param name="steering_speed_limit_rad_s">4.0</param>
+        <!-- UM CAN 看门狗 Pn5.00B 有效范围 0~111 ms（UM 手册），0=关闭
+             动作 Pn5.00C: 0=报警 1=关使能 2=给零速 -->
+        <param name="um_can_watchdog_timeout_ms">100</param>
+        <param name="um_can_watchdog_action">2</param>
+        <!-- UM TPDO1 周期上传 (6069h 实际速度 + 6063h 实际位置)，单位 ms -->
+        <param name="um_tpdo_period_ms">20</param>
+      </xacro:unless>
+    </hardware>
+
+    <!-- FL steering -->
+    <joint name="fl_steering_joint">
+      <param name="motor_id">5</param>
+      <param name="direction">1</param>
+      <param name="zero_offset">0.0</param>
+      <param name="steering_min">-1.5708</param>
+      <param name="steering_max">1.5708</param>
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- FR steering -->
+    <joint name="fr_steering_joint">
+      <param name="motor_id">6</param>
+      <param name="direction">1</param>
+      <param name="zero_offset">0.0</param>
+      <param name="steering_min">-1.5708</param>
+      <param name="steering_max">1.5708</param>
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- BL steering -->
+    <joint name="bl_steering_joint">
+      <param name="motor_id">7</param>
+      <param name="direction">1</param>
+      <param name="zero_offset">0.0</param>
+      <param name="steering_min">-1.5708</param>
+      <param name="steering_max">1.5708</param>
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- BR steering -->
+    <joint name="br_steering_joint">
+      <param name="motor_id">8</param>
+      <param name="direction">1</param>
+      <param name="zero_offset">0.0</param>
+      <param name="steering_min">-1.5708</param>
+      <param name="steering_max">1.5708</param>
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- FL drive (UM 轮毂一体机, CAN4 node_id=1, CANopen PV 模式) -->
+    <joint name="fl_wheel_joint">
+      <param name="motor_id">1</param>
+      <param name="direction">1</param>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- FR drive (UM 轮毂一体机, CAN4 node_id=2, CANopen PV 模式) -->
+    <joint name="fr_wheel_joint">
+      <param name="motor_id">2</param>
+      <param name="direction">-1</param>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- BL drive (UM 轮毂一体机, CAN4 node_id=3, CANopen PV 模式) -->
+    <joint name="bl_wheel_joint">
+      <param name="motor_id">3</param>
+      <param name="direction">1</param>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- BR drive (UM 轮毂一体机, CAN4 node_id=4, CANopen PV 模式) -->
+    <joint name="br_wheel_joint">
+      <param name="motor_id">4</param>
+      <param name="direction">-1</param>
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+</robot>
