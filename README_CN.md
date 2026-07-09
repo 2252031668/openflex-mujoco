@@ -1,3 +1,5 @@
+[📗 English](README.md)
+
 # OpenFlex MuJoCo 中文说明
 
 本项目把原本用于 **ROS2 / RViz** 的 OpenFlex v10 **完整全身模型**（移动底盘 + 升降 +
@@ -6,6 +8,12 @@
 
 核心思路：把「URDF → MuJoCo 编译 + 注入 actuator / 夹爪联动」这一步**一次性固化**成一个自包含成品 XML，
 viewer 只负责加载显示，不再依赖任何运行时中间文件。
+
+---
+
+## 🖼️ 效果图
+
+![OpenFlex MuJoCo viewer 效果图](assets/1.png)
 
 ---
 

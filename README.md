@@ -1,3 +1,5 @@
+[📘 中文说明 (Chinese)](README_CN.md)
+
 # OpenFlex MuJoCo English Guide
 
 This project converts the OpenFlex v10 **full-body robot model** (mobile base + lift + dual arms +
@@ -7,6 +9,12 @@ head) — originally built for **ROS2 / RViz** — into a self-contained MJCF th
 Key idea: the "URDF → MuJoCo compile + inject actuators / gripper coupling" step is done **once** and
 baked into a self-contained output XML. The viewers only load and display it — no runtime intermediate
 files.
+
+---
+
+## 🖼️ Preview
+
+![OpenFlex MuJoCo viewer 效果图](assets/1.png)
 
 ---
 
