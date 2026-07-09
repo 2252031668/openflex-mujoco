@@ -56,14 +56,14 @@ ROBOT_YAW = "-1.57079632679"
 ARM_SERVO_KP = 180
 FINGER_SERVO_KP = 80
 HEAD_SERVO_KP = 40
-LIFT_SERVO_KP = 12000          # 升降要扛约 253N 重力负载，必须高刚度才能稳住
+LIFT_SERVO_KP = 10000          # 升降要扛约 253N 重力负载，高刚度稳住（略降以减少灵敏/猛冲）
 STEER_SERVO_KP = 20
 
 # position actuator 的微分增益（即用户提到的 kd）：提供速度阻尼，消除振荡、增强可控性
 ARM_SERVO_KV = 20
 FINGER_SERVO_KV = 8
 HEAD_SERVO_KV = 4
-LIFT_SERVO_KV = 50            # ≈ 临界阻尼(2*sqrt(kp*Meff))，升降既硬又不抖
+LIFT_SERVO_KV = 2000          # ≈ 2×临界阻尼(2*sqrt(kp*Meff)≈1000)，过阻尼彻底消除振荡、快速稳定
 STEER_SERVO_KV = 4
 
 # 关节物理参数：damping / armature / frictionloss
