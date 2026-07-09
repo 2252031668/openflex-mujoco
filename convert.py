@@ -30,6 +30,7 @@ from pathlib import Path
 
 import mujoco
 import mujoco.viewer
+import numpy as np
 import trimesh
 
 
@@ -55,8 +56,15 @@ ROBOT_YAW = "-1.57079632679"
 ARM_SERVO_KP = 180
 FINGER_SERVO_KP = 80
 HEAD_SERVO_KP = 40
-LIFT_SERVO_KP = 300
+LIFT_SERVO_KP = 12000          # 升降要扛约 253N 重力负载，必须高刚度才能稳住
 STEER_SERVO_KP = 20
+
+# position actuator 的微分增益（即用户提到的 kd）：提供速度阻尼，消除振荡、增强可控性
+ARM_SERVO_KV = 20
+FINGER_SERVO_KV = 8
+HEAD_SERVO_KV = 4
+LIFT_SERVO_KV = 50            # ≈ 临界阻尼(2*sqrt(kp*Meff))，升降既硬又不抖
+STEER_SERVO_KV = 4
 
 # 关节物理参数：damping / armature / frictionloss
 ARM_JOINT_DAMPING = 18.0
@@ -81,6 +89,36 @@ WHEEL_JOINT_FRICTION = 0.0
 # MuJoCo 接触/约束求解器参数（夹爪联动用）
 EQUALITY_SOLIMP = "0.95 0.99 0.001"
 EQUALITY_SOLREF = "0.005 1"
+
+
+def _qrot(q: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """用四元数 [w,x,y,z] 旋转一组向量 (N,3)。"""
+    w, x, y, z = q
+    qv = np.array([x, y, z])
+    t = 2.0 * np.cross(qv, v)
+    return v + w * t + np.cross(qv, t)
+
+
+def compute_min_z(model: mujoco.MjModel, data: mujoco.MjData) -> float:
+    """计算当前位姿下所有网格几何的世界最低点 z（用于把机器人抬到地板面）。"""
+    mujoco.mj_forward(model, data)
+    min_z = np.inf
+    for i in range(model.ngeom):
+        did = int(model.geom_dataid[i])
+        if did < 0:
+            continue
+        adr = int(model.mesh_vertadr[did])
+        num = int(model.mesh_vertnum[did])
+        verts = np.asarray(model.mesh_vert[adr:adr + num])
+        gp = np.asarray(model.geom_pos[i])
+        gq = np.asarray(model.geom_quat[i])
+        bid = int(model.geom_bodyid[i])
+        bp = np.asarray(data.xpos[bid])
+        bq = np.asarray(data.xquat[bid])
+        loc = _qrot(gq, verts) + gp
+        world = _qrot(bq, loc) + bp
+        min_z = min(min_z, float(world[:, 2].min()))
+    return min_z
 
 
 def classify_joint(name: str) -> str | None:
@@ -117,6 +155,14 @@ ACTUATOR_KP: dict[str, float] = {
     "head": HEAD_SERVO_KP,
     "lift": LIFT_SERVO_KP,
     "steer": STEER_SERVO_KP,
+}
+
+ACTUATOR_KV: dict[str, float] = {
+    "arm": ARM_SERVO_KV,
+    "finger": FINGER_SERVO_KV,
+    "head": HEAD_SERVO_KV,
+    "lift": LIFT_SERVO_KV,
+    "steer": STEER_SERVO_KV,
 }
 
 
@@ -317,7 +363,7 @@ FLOOR_LIGHTS = """<light name="key_light" pos="-1.4 -2.2 3.2" dir="0.35 0.55 -1"
        diffuse="0.35 0.45 0.65" specular="0.12 0.12 0.16"/>
 <light name="rim_light" pos="0 2.2 1.8" dir="0 -1 -0.45" directional="true"
        diffuse="0.55 0.65 0.85" specular="0.20 0.22 0.28"/>
-<geom name="floor" type="plane" pos="0 0 -0.012" size="2.4 2.4 0.02" material="floor_mat"/>"""
+<geom name="floor" type="plane" pos="0 0 0" size="2.4 2.4 0.02" material="floor_mat"/>"""
 
 
 # --------------------------------------------------------------------------- #
@@ -342,6 +388,11 @@ def build_runtime_xml() -> Path:
 
     # 2) 编译成模型，再序列化为 MJCF（含 body 层级、joint、asset mesh）
     model = mujoco.MjModel.from_xml_path(str(tmp_urdf))
+    # 计算机器人几何最低点，用于把底盘抬到地板面（避免一半陷入地下）
+    _tmp_data = mujoco.MjData(model)
+    min_z = compute_min_z(model, _tmp_data)
+    base_lift = round(-min_z, 4)   # 上抬量：使最低点落到 z=0
+    print(f"📐 几何最低点 z={min_z:.4f} → 机器人整体上抬 {base_lift:.4f}")
     tmp_xml = ROOT / "_tmp_convert.xml"
     mujoco.mj_saveLastXML(str(tmp_xml), model)
     tmp_urdf.unlink(missing_ok=True)
@@ -378,7 +429,10 @@ def build_runtime_xml() -> Path:
     ]
     for c in robot_children:
         worldbody.remove(c)
-    yaw = ET.SubElement(worldbody, "body", {"name": "openflex_robot_yaw_root", "euler": f"0 0 {ROBOT_YAW}"})
+    yaw = ET.SubElement(worldbody, "body",
+                        {"name": "openflex_robot_yaw_root",
+                         "pos": f"0 0 {base_lift}",
+                         "euler": f"0 0 {ROBOT_YAW}"})
     for c in robot_children:
         yaw.append(c)
     lights_root = ET.fromstring(f"<root>{FLOOR_LIGHTS}</root>")
@@ -411,10 +465,12 @@ def build_runtime_xml() -> Path:
             continue
         lo, hi = model.jnt_range[jid]
         kp = ACTUATOR_KP[kind]
+        kv = ACTUATOR_KV[kind]
         ET.SubElement(actuator, "position", {
             "name": f"{name}_pos",
             "joint": name,
             "kp": str(kp),
+            "kv": str(kv),
             "ctrllimited": "true",
             "ctrlrange": f"{lo} {hi}",
         })
