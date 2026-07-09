@@ -1,16 +1,13 @@
 [project]
 name = "openflex-mujoco"
 version = "1.0.0"
-description = "OpenFlex v10 双臂机械臂 MuJoCo 仿真工程（uv 管理依赖）"
+description = "OpenFlex v10 双臂机械臂 URDF 转 MuJoCo MJCF 工程（uv 管理依赖）"
 readme = "README_CN.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mujoco==3.6.0",
-    "numpy==2.2.6",
-    "trimesh==4.11.5",
-    "pycollada==0.9.3",
-    "networkx==3.4.2",
-    "scipy==1.15.3",
+    "mujoco>=3.6.0",
+    "trimesh>=4.11.5",
+    "pycollada>=0.9.3",
 ]
 
 [tool.uv]
