@@ -40,12 +40,25 @@ OUTPUT_XML = ROOT / "openflex_mujoco.xml"
 MUJOCO_MESH_DIR = ROOT / "mujoco_meshes"
 PACKAGES_DIR = ROOT / "packages"
 
-# 把 package://<pkg>/ 映射到本地的 packages/<pkg>/（自动发现，支持多 package 的完整模型）
+# 把 package://<pkg>/ 映射到本地的 packages/ 下任意层级的 <pkg>/ 目录。
+# 支持子模块嵌套布局（例如 swerve_description 实际位于 base_model_interface_layer 仓库内）。
 PACKAGE_PREFIXES: dict[str, Path] = {}
-if PACKAGES_DIR.is_dir():
-    for _sub in sorted(PACKAGES_DIR.iterdir()):
-        if _sub.is_dir():
-            PACKAGE_PREFIXES[f"package://{_sub.name}/"] = _sub
+
+def _discover_packages(root: Path) -> None:
+    if not root.is_dir():
+        return
+    for _sub in sorted(root.iterdir()):
+        if not _sub.is_dir() or _sub.name == ".git":
+            continue
+        # 目录名本身即一个 ROS package（如 swerve_description / openarmx_description ...）
+        if _sub.name.endswith("_description") and (
+            (_sub / "urdf").is_dir() or (_sub / "package.xml").is_file()
+        ):
+            PACKAGE_PREFIXES.setdefault(f"package://{_sub.name}/", _sub)
+        # 继续向下一级递归，兼容子模块嵌套（如 packages/openflex_chassis/swerve_description）
+        _discover_packages(_sub)
+
+_discover_packages(PACKAGES_DIR)
 
 # 整个机器人绕 Z 轴旋转，使机器人正对默认视角
 ROBOT_YAW = "-1.57079632679"

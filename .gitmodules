@@ -1,0 +1,16 @@
+[submodule "packages/openflex_chassis"]
+	path = packages/openflex_chassis
+	url = https://github.com/OpenFleX-Wheeled-Humanoid/base_model_interface_layer.git
+	branch = v1.0_basic
+[submodule "packages/lift_slide_description"]
+	path = packages/lift_slide_description
+	url = https://github.com/OpenFleX-Wheeled-Humanoid/lift_slide_description.git
+	branch = v1.0_basic
+[submodule "packages/openarmx_description"]
+	path = packages/openarmx_description
+	url = https://github.com/OpenFleX-Wheeled-Humanoid/openarmx_description.git
+	branch = v1.0_basic
+[submodule "packages/openarmx_head_description"]
+	path = packages/openarmx_head_description
+	url = https://github.com/OpenFleX-Wheeled-Humanoid/openarmx_head_description.git
+	branch = v1.0_basic

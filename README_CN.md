@@ -37,15 +37,36 @@ uv sync
 python3 -c "import mujoco, mujoco.viewer, numpy, trimesh; print('MuJoCo environment OK')"
 ```
 
-### 三步运行
+### 获取仓库与运行
+
+本仓库**已提交** `openflex_mujoco.xml` 与 `mujoco_meshes/`，因此克隆后**无需运行 `convert.py`**
+就能直接用 viewer 看模型：
 
 ```bash
-# 1) 转换：ROS2 URDF -> 自包含成品 XML（生成 openflex_mujoco.xml + mujoco_meshes/）
-python3 convert.py
+# 普通克隆即可直接查看（推荐，最简单）
+git clone <本仓库地址> openflex_mujoco
+cd openflex_mujoco
+python3 viewer.py            # 直接打开已生成的成品模型
+```
 
-# 2) 原生查看：用 MuJoCo 自带 viewer 打开成品 XML（右侧拖滑块控制关节）
+若想用 **OpenFleX 上游最新模型**重新构建（而不是用仓库里已提交的成品），
+需要**递归克隆**以拉取 `packages/` 下的 4 个 git 子模块，再重跑转换：
+
+```bash
+# 递归克隆：额外拉取 packages/ 的 4 个子模块（描述文件来自 OpenFleX-Wheeled-Humanoid org）
+git clone --recursive <本仓库地址> openflex_mujoco
+cd openflex_mujoco
+
+# 仅拉取子模块（已克隆过主仓库、忘了 --recursive 时）：
+git submodule update --init --recursive
+
+# 用最新上游模型重新生成 openflex_mujoco.xml + mujoco_meshes/
+python3 convert.py
 python3 viewer.py
 ```
+
+> 注意：未递归克隆时 `packages/` 为空，`convert.py` 会因找不到源网格而失败；
+> 此时直接用仓库已提交的成品 XML + viewer 即可（见上面的「普通克隆」）。
 
 只校验生成 / 加载、不打开窗口：
 
@@ -75,14 +96,19 @@ python3 viewer.py  --check
 ├── convert.py                       # 转换程序：URDF -> 自包含成品 MJCF
 ├── viewer.py                        # 原生 MuJoCo viewer（加载成品 XML）
 ├── openflex_integrated_robot.urdf   # 源：ROS2 导出的完整全身 URDF
-├── packages/                        # 源：各 package 的原始 mesh（.dae / .stl，由 git-lfs 管理）
-├── openflex_mujoco.xml              # 产物(生成)：自包含成品 MJCF（含 actuator/联动/地板/灯光）
-└── mujoco_meshes/                   # 产物(生成)：转换后的 MuJoCo 友好网格（.obj，相对路径引用）
+├── packages/                        # 源：4 个 git 子模块（OpenFleX 上游描述文件，不进主仓库历史）
+│   ├── openflex_chassis/            #   -> base_model_interface_layer（含 swerve_description）
+│   ├── lift_slide_description/      #   -> OpenFleX-Wheeled-Humanoid/lift_slide_description
+│   ├── openarmx_description/        #   -> OpenFleX-Wheeled-Humanoid/openarmx_description
+│   └── openarmx_head_description/   #   -> OpenFleX-Wheeled-Humanoid/openarmx_head_description
+├── openflex_mujoco.xml              # 成品(已提交)：自包含成品 MJCF（含 actuator/联动/地板/灯光）
+└── mujoco_meshes/                   # 成品(已提交)：转换后的 MuJoCo 友好网格（.obj，相对路径引用）
 ```
 
-> `openflex_mujoco.xml` 与 `mujoco_meshes/` 都是 **`convert.py` 生成的**，已被 `.gitignore` 忽略；
-> 只有源 URDF / mesh 或参数改动时才需要重跑 `convert.py`。`viewer.py` 不再产生任何中间文件。
-> 源网格 `packages/` 体积较大，已用 **git-lfs** 跟踪（`.stl` / `.STL` / `.dae`）。
+> `openflex_mujoco.xml` 与 `mujoco_meshes/` **已提交到仓库**，克隆即直接用 viewer 打开，无需重跑 `convert.py`；
+> 仅当你想用 OpenFleX 上游最新模型重建时才需要 `git clone --recursive` 拉取 `packages/` 子模块并重跑 `convert.py`。
+> 源描述文件（`packages/`）以 **git 子模块**方式引用（来自 `https://github.com/orgs/OpenFleX-Wheeled-Humanoid/repositories`），
+> 不进入本仓库历史，因此主仓库保持精简。
 
 ---
 
