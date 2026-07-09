@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import signal
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -15,6 +16,9 @@ import numpy as np
 
 from view_ros2_visual_meshes import OUTPUT_URDF, SOURCE_URDF, generate_visual_urdf
 from scene_utils import FLOOR_SCENE
+
+# Global flag for graceful shutdown via Ctrl+C
+_running = True
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -201,6 +205,7 @@ def main() -> None:
         return
 
     def key_callback(keycode: int) -> None:
+        global _running
         try:
             key = chr(keycode).upper()
         except ValueError:
@@ -225,6 +230,12 @@ def main() -> None:
         elif key == "M":
             state["right_open"] = False
             print("👉 右夹爪闭合")
+        elif key == "Q":
+            _running = False
+            print("👉 退出")
+
+    signal.signal(signal.SIGINT, lambda sig, frame: setattr(
+        __import__("sys").modules[__name__], "_running", False))
 
     with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
         viewer.cam.lookat[:] = [0.0, -0.02, 0.58]
@@ -232,7 +243,7 @@ def main() -> None:
         viewer.cam.elevation = -16
         viewer.cam.azimuth = 180
 
-        while viewer.is_running():
+        while _running and viewer.is_running():
             # Apply gripper targets
             left_targets = [pair[1] if state["left_open"] else pair[0] for pair in left_open_close]
             right_targets = [pair[1] if state["right_open"] else pair[0] for pair in right_open_close]
@@ -243,10 +254,13 @@ def main() -> None:
                 data.qpos[qpos_id] += GRIPPER_SMOOTH * (target - data.qpos[qpos_id])
                 data.qpos[qpos_id] = clamp_joint(model, joint_id, data.qpos[qpos_id])
 
-            mujoco.mj_step(model, data)
-            data.mocap_pos[left_viz_mocap] = get_body_center(model, data, LEFT_FINGER_BODIES)
-            data.mocap_pos[right_viz_mocap] = get_body_center(model, data, RIGHT_FINGER_BODIES)
-            viewer.sync()
+            try:
+                mujoco.mj_step(model, data)
+                data.mocap_pos[left_viz_mocap] = get_body_center(model, data, LEFT_FINGER_BODIES)
+                data.mocap_pos[right_viz_mocap] = get_body_center(model, data, RIGHT_FINGER_BODIES)
+                viewer.sync()
+            except Exception:
+                break
             time.sleep(model.opt.timestep)
 
 

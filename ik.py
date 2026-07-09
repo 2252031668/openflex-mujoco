@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import signal
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -15,6 +16,9 @@ import numpy as np
 
 from view_ros2_visual_meshes import OUTPUT_URDF, SOURCE_URDF, generate_visual_urdf
 from scene_utils import FLOOR_SCENE
+
+# Global flag for graceful shutdown via Ctrl+C
+_running = True
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -200,6 +204,7 @@ def main() -> None:
         mujoco.mj_forward(model, data)
 
     def key_callback(keycode: int) -> None:
+        global _running
         try:
             key = chr(keycode).upper()
         except ValueError:
@@ -233,6 +238,9 @@ def main() -> None:
         elif key == "I":
             state["debug"] = not state["debug"]
             print(f"👉 调试输出 {'开启' if state['debug'] else '关闭'}")
+        elif key == "\x1b":  # ESC key
+            _running = False
+            print("👉 退出")
         else:
             return
         state["target_pos"] = clamp_target(state["target_pos"])
@@ -242,11 +250,14 @@ def main() -> None:
     reset_robot()
 
     print("✅ OpenFlex IK 脚本已加载")
-    print("操作: WASD 移动红球, Q/E 上下, O/C 夹爪开合, R 复位, P 暂停, I 调试, 鼠标拖拽旋转/缩放")
+    print("操作: WASD 移动红球, Q/E 上下, O/C 夹爪开合, R 复位, P 暂停, I 调试, ESC 退出, 鼠标拖拽旋转/缩放")
     print(f"nq={model.nq} nv={model.nv} nbody={model.nbody} ngeom={model.ngeom}")
 
     if args.check:
         return
+
+    signal.signal(signal.SIGINT, lambda sig, frame: setattr(
+        __import__("sys").modules[__name__], "_running", False))
 
     with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
         viewer.cam.lookat[:] = [0.0, -0.02, 0.58]
@@ -255,7 +266,7 @@ def main() -> None:
         viewer.cam.azimuth = 180
 
         last_debug = 0.0
-        while viewer.is_running():
+        while _running and viewer.is_running():
             target_pos = clamp_target(state["target_pos"])
             data.mocap_pos[target_mocap_id] = target_pos
 
@@ -282,7 +293,10 @@ def main() -> None:
                 print(f"[DEBUG] target={target_pos.round(4)} cur={gripper_center.round(4)} err={err:.5f}")
                 last_debug = now
 
-            viewer.sync()
+            try:
+                viewer.sync()
+            except Exception:
+                break
             time.sleep(model.opt.timestep)
 
 
