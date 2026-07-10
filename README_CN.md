@@ -285,26 +285,11 @@ python3 convert.py --check
 平移为 `[-0.8, 0.15]`。效果：滑块 0 即对应**原 0.15 高度**，且上下行程范围完全不变
 （最低/最高物理位置与原版一致）。要改回或再调，直接改这三个值即可。
 
-### 6. 默认相机视角（正面 + 胸高）
+### 6. 视角与交互
 
-采用 **MuJoCo `launch_passive` + 代码初始化相机** 的最简方式（和你给的样例一致）：
-
-```python
-viewer = mujoco.viewer.launch_passive(model, data)
-init_front_camera(model, viewer.cam)        # 启动后、循环前初始化相机
-while viewer.is_running():
-    mujoco.mj_step(model, data)
-    viewer.sync()
-```
-
-- 相机**不在 XML 里写**，而是在 `viewer.py` 的 `init_front_camera()` 里用代码设置：
-  - 类型 `mjCAMERA_FREE`（打开即**可鼠标自由旋转/缩放**，默认就是自由视角，无需切 UI）。
-  - 位置在机器人**正前方（-Y，由头部前置 RGBD 相机 `camera_link` 位于最 -Y 侧确认）、与胸部齐平**
-    （`chest_link` 世界高度）。
-  - 计算方式：先 `mj_forward` 取所有 body 的 `xpos`，Y 中心作为 `lookat` 的 Y，胸高作为 `lookat` 的 Z。
-- **想手动调初始视角**：直接改 `viewer.py` 里 `init_front_camera` 的 `cam.lookat` / `distance` /
-  `azimuth` / `elevation` 即可（例如 `distance=4.0` 远近、`azimuth=-90` 正面、`elevation` 俯仰）。
-- 机器人整体朝向仍由 `convert.py` 的 `ROBOT_YAW` 控制，改 `ROBOT_YAW` 后相机也会跟着绕到对应正面。
+直接用 MuJoCo 托管式 ``viewer.launch(model, data)`` 打开：标准窗口、鼠标可旋转/缩放，
+初始视角由 MuJoCo 自动取景（框住整个机器人）。无需在 XML 或代码里额外配置相机。
+机器人整体朝向由 ``convert.py`` 的 ``ROBOT_YAW`` 控制。
 
 ---
 
