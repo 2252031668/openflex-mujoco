@@ -123,6 +123,18 @@ def build() -> Path:
     equality_el = root.find("equality")
 
     for side in ("left", "right"):
+        # --- 清 link7 末端视觉杂物 ---
+        # 蓝色圆柱（视觉 part1, rgba=0.3 0.7 1）：手要直接接在 link7 上，套筒不能挡住
+        # 腕部；空 body link7_pico：手插到 link7 后它会被 palm 节点挤掉，留着只是冗余。
+        link7 = root.find(f".//body[@name='openarmx_{side}_link7']")
+        for g in list(link7.findall("geom")):
+            mesh = g.get("mesh", "")
+            if mesh.endswith("_part1"):
+                link7.remove(g)
+        pico = root.find(f".//body[@name='openarmx_{side}_link7_pico']")
+        if pico is not None and pico in list(link7):
+            link7.remove(pico)
+
         # --- 删原夹爪 body ---
         gripper = root.find(f".//body[@name='openarmx_{side}_hand']")
         if gripper is not None:
