@@ -85,8 +85,12 @@ How build B works (optimized, no redundancy):
 - Because the chassis platform (base_link visual mesh) now collides too, the arm is stopped when
   pushed into the body / chassis.
 - Adjacent parent-child bodies (joints) get `<exclude>` pairs to avoid jitter from overlapping
-  geometry at the joint; non-adjacent pairs (e.g. left arm ↔ right arm, arm ↔ body / chassis,
-  arm ↔ lift column) collide normally.
+  geometry at the joint. Additionally, **all collisions between non-arm rigid bodies** are excluded:
+  the chassis / wheels / lift column / body / head are one rigidly-mounted assembly with built-in
+  mesh overlaps (4–9 cm); letting them collide would shove parts apart (the lift launching upward at
+  startup). What remains is **every collision that involves an arm**: arm↔arm, arm↔body / chassis,
+  arm↔lift column, arm↔head. The body keeps its collision volume (the arm can hit it); body parts
+  just don't collide with each other.
 - `convert.py` builds **both versions by default**.
 
 > To use build B, just `python3 viewer.py --self-collision` after cloning (the output is committed);

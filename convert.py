@@ -462,6 +462,34 @@ def _add_contact_excludes(root: ET.Element) -> int:
     return added
 
 
+def _add_bodybody_excludes(root: ET.Element, model: mujoco.MjModel) -> int:
+    """排除『非机械臂刚体之间』的互碰。
+
+    底盘 / 轮子 / 升降柱 / 机身 / 头部 在 URDF 里多为固定关节连接（MuJoCo 中无关节、
+    仅刚体 attach），相互之间存在 4~9cm 的建模重叠。若让它们互相碰撞，求解器会把
+    重叠顶开——表现为启动后升降被 lift↔chest 的穿透顶飞、底盘内部抖动炸开。
+
+    因此只保留『含机械臂(openarmx_)』的碰撞：臂↔臂、臂↔升降、臂↔机身/底盘/头部，
+    即用户要的自碰撞；机身仍保有碰撞体积（手臂能撞到它），只是机身各部件之间不互碰。
+    """
+    contact_el = root.find("contact")
+    if contact_el is None:
+        contact_el = ET.SubElement(root, "contact")
+    arm_prefixes = ("openarmx_left_", "openarmx_right_")
+    non_arm = []
+    for i in range(model.nbody):
+        nm = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
+        if nm and not nm.startswith(arm_prefixes):
+            non_arm.append(nm)
+    added = 0
+    for a in range(len(non_arm)):
+        for b in range(a + 1, len(non_arm)):
+            ET.SubElement(contact_el, "exclude",
+                          {"body1": non_arm[a], "body2": non_arm[b]})
+            added += 1
+    return added
+
+
 def build_base_mjcf() -> tuple[ET.ElementTree, mujoco.MjModel, float]:
     """编译『视觉版』URDF -> MJCF，并完成地板/灯光/yaw root 装配。
 
@@ -576,10 +604,11 @@ def build_selfcol_xml() -> Path:
         floor.set("conaffinity", "3")
 
     excl = _add_contact_excludes(root)
+    bdexcl = _add_bodybody_excludes(root, model)
     apply_joint_dynamics(root)
     eq, act = _add_actuators_and_equality(root, model)
     tree.write(OUTPUT_SELFCOL_XML, encoding="utf-8", xml_declaration=True)
-    print(f"✅ [版本B:全面自碰撞] 视觉网格直接碰撞 | 相邻关节 exclude: {excl} | 夹爪联动: {eq} | actuator: {act}")
+    print(f"✅ [版本B:全面自碰撞] 视觉网格直接碰撞 | 相邻关节 exclude: {excl} | 非机械臂刚体互碰 exclude: {bdexcl} | 夹爪联动: {eq} | actuator: {act}")
     return OUTPUT_SELFCOL_XML
 
 
