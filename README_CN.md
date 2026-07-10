@@ -137,15 +137,22 @@ python3 build_hand_xml.py     # 生成 openflex_mujoco_hand.xml
 实现要点：
 
 - 删掉每条臂末端的原夹爪（`openarmx_<side>_hand` 子树 + `finger_joint1/2` 执行器 + mimic 联动），
-  把 LDJY 手根 `openarmx_<side>_palm` 以原挂载点 `pos="0 0 0.1001"` 挂到 `openarmx_<side>_link7` 末端。
-- 手的所有 body/joint/geom/mesh/actuator 名字加 `openarmx_<side>_` 前缀，因此被归入「机械臂」分组：
-  既能与机身/底盘正确自碰撞，又不会被「非机械臂刚体互碰」排除挡掉。
+  把 LDJY 手根 `ldjy_<side>_palm` 以 `pos="0 0 0.1311"` 挂到 `openarmx_<side>_link7` 末端。
+  （手掌网格背面即手腕安装平面在本地 z≈-0.031，原夹爪挂载点是电机端面 `0.1001`，故 palm 原点放在
+  `0.1001 + 0.031 = 0.1311`，让手腕平面与电机面贴合而非穿模嵌入。）
+- 手的所有 body/joint/geom/mesh/actuator 名字加 `ldjy_<side>_` 前缀（控制滑块即以此干净命名），
+  同时把 `ldjy_<side>_` 也列入「机械臂」分组：既能与机身/底盘正确自碰撞，
+  又不会被「非机械臂刚体互碰」排除挡掉。（双臂本体仍用 `openarmx_` 前缀，因为那确实是 OpenFlex 机械臂。）
 - 手的视觉 geom 仅渲染（`contype=0/conaffinity=0`），碰撞 geom（`palm_collision`、各指 `*_collision`、
-  胶囊体）开启碰撞（`3/3`），所以手能碰机身/底盘/地板，手指间靠相邻父子 body 互免避免抖炸。
-- 追加 40 个手指 position 执行器（左右手各 20），`viewer` 会把 `ctrl` 初始化为当前 `qpos`，手指不跳变。
+  胶囊体）开启碰撞（`3/3`）但设 `rgba` alpha=0 **全透明**，仅参与碰撞不参与显示，
+  避免与视觉网格在相同位置叠加造成闪烁（z-fighting）。
+- 左右手姿态：右手姿态正确；左手在手腕处绕 Z 轴转 180°（`euler="0 0 3.14159265"`），
+  使左右手心相对（左手网格已 `scale="-1 1 1"` 镜像，叠加 180°Z 等效再绕 Y 镜像，手心翻向 -Y）。
+- 追加 40 个手指 position 执行器（左右手各 20，`ldjy_<side>_finger*/thumb*_joint*_actuator`），
+  `viewer` 会把 `ctrl` 初始化为当前 `qpos`，手指不跳变。
 
-> 手的根坐标系（手指沿 +Z 延伸）默认即沿臂的向外方向挂载；若视觉上觉得朝向需要翻转，
-> 调整 `build_hand_xml.py` 里 `WRIST_POS` 旁的手根 `euler` 即可重新生成。
+> 若手根相对电机仍有穿模/悬空，调整 `build_hand_xml.py` 里的 `WRIST_POS`（Z 值即手腕平面到电机面的距离）；
+> 若左手朝向还需微调，改 `WRIST_POS` 旁的左手 `euler` 即可重新生成。
 
 ---
 

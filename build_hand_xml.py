@@ -6,9 +6,10 @@
   1. 删掉每条臂末端的 OpenFlex 夹爪（openarmx_<side>_hand 子树 + finger_joint1/2
      执行器 + mimic 联动约束）。
   2. 读取 ldjy_hand/ldjy_<side>_hand.xml，把所有 body/joint/geom/mesh/actuator 名字
-     加 openarmx_<side>_ 前缀（这样手被归入「机械臂」分组，能与机身/底盘正确自碰撞，
-     且不会掉进「非机械臂刚体互碰」的排除里）。左手复用同一套 STL，仅靠 scale="-1 1 1" 镜像。
-  3. 把手根 body（openarmx_<side>_palm）以 pos="0 0 0.1001"（即原夹爪挂载点）挂到
+    加 ldjy_<side>_ 前缀（控制滑块即以此命名；同时把 ldjy_<side>_ 也列入「机械臂」分组，
+    使手能与机身/底盘正确自碰撞，且不会掉进「非机械臂刚体互碰」的排除里）。
+    左手复用同一套 STL，仅靠 scale="-1 1 1" 镜像。
+ 3. 把手根 body（ldjy_<side>_palm）以 pos="0 0 0.1311"（手掌背面手腕平面对齐电机端面）挂到
      openarmx_<side>_link7 末端。
   4. 手的视觉 geom 设为 contype=0/conaffinity=0（仅渲染），碰撞 geom（palm_collision、
      各指 *_collision、胶囊体）设为 3/3（参与自碰撞 + 碰地板）。
@@ -33,11 +34,13 @@ SRC = ROOT / "openflex_mujoco_selfcol.xml"
 OUT = ROOT / "openflex_mujoco_hand.xml"
 HAND_DIR = ROOT / "ldjy_hand"
 
-# 原夹爪挂载点（相对 link7），手根 palm 直接挂到这里
-WRIST_POS = "0 0 0.1001"
+# 手根挂载点（相对 link7）：手掌网格背面（手腕安装平面，本地 z≈-0.031）要贴合电机端面
+# （原夹爪挂载点 0.1001），故 palm 原点放在 0.1001 + 0.031 = 0.1311，避免穿模嵌入电机。
+WRIST_POS = "0 0 0.1311"
 
-# 机械臂分组前缀（决定哪些 body 算「机械臂」，从而参与自碰撞、不被非机械臂排除挡掉）
-ARM_PREFIXES = ("openarmx_left_", "openarmx_right_")
+# 机械臂分组前缀（决定哪些 body 算「机械臂」，从而参与自碰撞、不被非机械臂排除挡掉）。
+# 手的 body 也归入机械臂分组（用 ldjy_<side>_ 前缀），既能被正确命名又能与机身/底盘碰撞。
+ARM_PREFIXES = ("openarmx_left_", "openarmx_right_", "ldjy_left_", "ldjy_right_")
 
 
 def _parent_map(root: ET.Element) -> dict[ET.Element, ET.Element]:
@@ -45,14 +48,14 @@ def _parent_map(root: ET.Element) -> dict[ET.Element, ET.Element]:
 
 
 def load_hand(side: str) -> ET.Element:
-    """读取单侧手 XML，重写网格路径并把所有名字加 openarmx_<side>_ 前缀。"""
+    """读取单侧手 XML，重写网格路径并把所有名字加 ldjy_<side>_ 前缀（控制滑块即以此命名）。"""
     text = (HAND_DIR / f"ldjy_{side}_hand.xml").read_text(encoding="utf-8")
     # 网格路径：原 ../meshes/ -> 相对成品 XML（项目根）的 ldjy_hand/meshes/
     # （碰撞网格本在 ../meshes/collision/，一并拍平到 ldjy_hand/meshes/，先处理 collision 前缀）
     text = text.replace("../meshes/collision/", "ldjy_hand/meshes/")
     text = text.replace("../meshes/", "ldjy_hand/meshes/")
-    # 前缀重命名（先整体替换，mesh 文件名里不含 left_/right_，故安全）
-    text = text.replace(f"{side}_", f"openarmx_{side}_")
+    # 前缀重命名（用 ldjy_<side>_ 而非 openarmx_，使控制滑块名称干净；mesh 文件名不含 left_/right_，安全）
+    text = text.replace(f"{side}_", f"ldjy_{side}_")
     return ET.fromstring(text)
 
 
@@ -68,7 +71,8 @@ def extract_hand_parts(hand_root: ET.Element):
 
 
 def set_hand_collision_groups(hand_body: ET.Element) -> None:
-    """视觉 geom 仅渲染(0/0)，碰撞 geom(含 collision/capsule/body) 参与碰撞(3/3)。"""
+    """视觉 geom 仅渲染(0/0)；碰撞 geom(含 collision/capsule/body) 参与碰撞(3/3) 但设
+    为全透明(rgba alpha=0)，避免与视觉网格在相同位置叠加导致闪烁(z-fighting)。"""
     for geom in hand_body.iter("geom"):
         name = geom.get("name", "")
         if "visual" in name:
@@ -77,6 +81,7 @@ def set_hand_collision_groups(hand_body: ET.Element) -> None:
         else:
             geom.set("contype", "3")
             geom.set("conaffinity", "3")
+            geom.set("rgba", "0.55 0.7 0.9 0")  # 碰撞体不可见，仅参与碰撞
 
 
 def rebuild_contact(root: ET.Element) -> None:
@@ -137,6 +142,10 @@ def build() -> Path:
         hand_root = load_hand(side)
         mesh_defs, hand_body, actuators = extract_hand_parts(hand_root)
         hand_body.set("pos", WRIST_POS)
+        if side == "left":
+            # 右手姿态正确，左手需在手腕处绕 Z 轴转 180°，使左右手心相对而非同向。
+            # （左手网格已用 scale="-1 1 1" 镜像，叠加 180°Z 等效于再绕 Y 镜像，手心翻向 -Y。）
+            hand_body.set("euler", "0 0 3.14159265")
         set_hand_collision_groups(hand_body)
 
         # mesh 定义并入 asset（去掉 MuJoCo 不识别的 content_type，按扩展名自动识别 stl）
@@ -165,7 +174,7 @@ def validate(path: Path) -> None:
     # 统计手相关 body / 碰撞 geom
     hand_bodies = sum(1 for i in range(model.nbody)
                       if (n := mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i))
-                      and (n.startswith("openarmx_left_") or n.startswith("openarmx_right_"))
+                      and (n.startswith("ldjy_left_") or n.startswith("ldjy_right_"))
                       and ("palm" in n or "finger" in n or "thumb" in n))
     print(f"✅ 带手版本可加载: nq={model.nq} nv={model.nv} nu={model.nu} | 手相关 body≈{hand_bodies}")
     print(f"   产物: {path.name}")
