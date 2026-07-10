@@ -137,9 +137,9 @@ python3 build_hand_xml.py     # 生成 openflex_mujoco_hand.xml
 实现要点：
 
 - 删掉每条臂末端的原夹爪（`openarmx_<side>_hand` 子树 + `finger_joint1/2` 执行器 + mimic 联动），
-  把 LDJY 手根 `ldjy_<side>_palm` 以 `pos="0 0 0.1311"` 挂到 `openarmx_<side>_link7` 末端。
-  （手掌网格背面即手腕安装平面在本地 z≈-0.031，原夹爪挂载点是电机端面 `0.1001`，故 palm 原点放在
-  `0.1001 + 0.031 = 0.1311`，让手腕平面与电机面贴合而非穿模嵌入。）
+  把 LDJY 手根 `ldjy_<side>_palm` 以 `pos="0 0 0.1415"` 挂到 `openarmx_<side>_link7` 末端。
+  （手掌网格背面即手腕安装平面在本地 z≈-0.031；link7 视觉网格手腕电机端面在本地 z≈0.1105，
+  故 palm 原点放在 `0.1105 + 0.031 = 0.1415`，让安装平面与电机端面贴合而非嵌入电机壳内部。）
 - 手的所有 body/joint/geom/mesh/actuator 名字加 `ldjy_<side>_` 前缀（控制滑块即以此干净命名），
   同时把 `ldjy_<side>_` 也列入「机械臂」分组：既能与机身/底盘正确自碰撞，
   又不会被「非机械臂刚体互碰」排除挡掉。（双臂本体仍用 `openarmx_` 前缀，因为那确实是 OpenFlex 机械臂。）
@@ -276,7 +276,22 @@ python3 convert.py --check
 版本 B 已排除**所有「非机械臂刚体之间」的互碰**（底盘 / 轮子 / 升降柱 / 机身 / 头部本是
 一体或安装重叠，互相碰撞会被求解器顶飞，导致升降启动后失控上升），当前版本升降 / 机身稳定，
 仅保留含机械臂的碰撞。若自行修改 `contype/conaffinity` 或删掉这些 `<exclude>` 后重现该问题，
-重跑 `python3 convert.py` 恢复即可。
+  重跑 `python3 convert.py` 恢复即可。
+
+### 5. 升降零位已重设（把原 0.15 设为 0）
+
+带手后整体变高，升降的「中性/零位」已重设：平台几何上移 0.15（`lift_carriage_link` 由
+`0 0 0.81` 改为 `0 0 0.96`），关节 `range` 与升降执行器 `ctrlrange` 同步由 `[-0.65, 0.3]`
+平移为 `[-0.8, 0.15]`。效果：滑块 0 即对应**原 0.15 高度**，且上下行程范围完全不变
+（最低/最高物理位置与原版一致）。要改回或再调，直接改这三个值即可。
+
+### 6. 默认相机视角（正面 + 胸高）
+
+`viewer.py` 启动后用 `launch_passive` 把自由相机初始放到机器人**正前方（-Y）、与胸部齐平**
+的位置（仍可鼠标自由旋转 / 缩放）。正面方向由头部前置 RGBD 相机 `camera_link`（位于最 -Y 侧）
+确定；胸高取 `chest_link` 世界高度。若想换默认朝向，改 `viewer.py` 里 `set_front_camera` 的
+`azimuth`（正面 180°）/`distance`/`elevation` 即可。注意：机器人整体朝向仍由 `convert.py`
+的 `ROBOT_YAW` 控制，改 `ROBOT_YAW` 后相机也会跟着绕到对应正面。
 
 ---
 
