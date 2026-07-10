@@ -152,7 +152,7 @@ def build() -> Path:
             "name": f"ldjy_{side}_wrist_roll",
             "type": "hinge",
             "axis": "0 0 1",
-            "range": "-1.5 1.5",
+            "range": "-1.5708 1.5708",
         })
 
         hand_body.set("pos", "0 0 0")  # palm 相对于 wrist 原点，无额外偏移
@@ -177,7 +177,7 @@ def build() -> Path:
             "name": f"ldjy_{side}_wrist_roll_pos",
             "joint": f"ldjy_{side}_wrist_roll",
             "kp": "180",
-            "ctrlrange": "-1.5 1.5",
+            "ctrlrange": "-1.5708 1.5708",
         })
 
         # 腕部挂到 link7 末端
