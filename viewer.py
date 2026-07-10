@@ -28,11 +28,47 @@ OUTPUT_SELFCOL_XML = ROOT / "openflex_mujoco_selfcol.xml"
 OUTPUT_HAND_XML = ROOT / "openflex_mujoco_hand.xml"
 
 
+# ===================== 相机初始视角（可调参数） =====================
+# 想改默认观察角度，直接调下面这几个值即可：
+CAM_TYPE      = mujoco.mjtCamera.mjCAMERA_FREE   # 自由相机：打开即鼠标旋转/缩放
+CAM_LOOKAT    = None        # 焦点 [x, y, z]；None = 自动取「水平中心 + 胸部高度」
+CAM_DISTANCE  = 4.0         # 相机离焦点的距离（米）
+CAM_AZIMUTH   = -90.0       # 方位角：0=+X 看向 -X；-90=相机在 -Y 侧（机器人正前方）
+CAM_ELEVATION = 0.0         # 俯仰角：0=水平；负值=向下俯视
+# ===================================================================
+
+
 def seed_actuator_controls(model, data) -> None:
     for actuator_id in range(model.nu):
         joint_id = model.actuator_trnid[actuator_id, 0]
         qpos_id = int(model.jnt_qposadr[joint_id])
         data.ctrl[actuator_id] = data.qpos[qpos_id]
+
+
+def init_front_camera(model, cam) -> None:
+    """把自由相机放到机器人正前方 (-Y)、与胸部齐平；参数全部由上方 CAM_* 配置控制。
+
+    正面方向由头部前置 RGBD 相机 camera_link（位于最 -Y 侧）确认；胸高取 chest_link 世界高度。
+    """
+    if CAM_LOOKAT is None:
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+        ys = data.xpos[:, 1]
+        cy = float((ys.min() + ys.max()) / 2)          # 机器人水平中心 Y
+        try:
+            cid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "chest_link")
+            chest_z = float(data.xpos[cid, 2])
+        except Exception:
+            zs = data.xpos[:, 2]
+            chest_z = float((zs.min() + zs.max()) / 2)
+        cam.lookat[:] = [0.0, cy, chest_z * 0.95]      # 自动焦点
+    else:
+        cam.lookat[:] = list(CAM_LOOKAT)               # 手动焦点
+
+    cam.type = CAM_TYPE
+    cam.distance = CAM_DISTANCE
+    cam.azimuth = CAM_AZIMUTH
+    cam.elevation = CAM_ELEVATION
 
 
 def main() -> None:
@@ -61,13 +97,17 @@ def main() -> None:
     model.opt.gravity[:] = 0.0
     seed_actuator_controls(model, data)
 
-    print(f"✅ 已加载 [{tag}]: nq={model.nq} nv={model.nv} nu={model.nu}")
+    print(f"已加载 [{tag}]: nq={model.nq} nv={model.nv} nu={model.nu}")
     if args.check:
         return
 
-    # 官方最简方式：launch 阻塞式 viewer（标准窗口、有关闭按钮、自带物理循环与渲染）。
-    # 初始相机视角由 XML 里的 <camera name="front"> + <visual><global cameraid="front"/> 决定（正面+胸高）。
-    mujoco.viewer.launch(model, data)
+    # launch_passive：窗口在独立线程、物理循环留在主线程，支持鼠标自由旋转/缩放。
+    # 相机视角在「启动后、循环前」用代码初始化（参数见文件顶部 CAM_* 配置块）。
+    viewer = mujoco.viewer.launch_passive(model, data)
+    init_front_camera(model, viewer.cam)
+    while viewer.is_running():
+        mujoco.mj_step(model, data)
+        viewer.sync()
 
 
 if __name__ == "__main__":
