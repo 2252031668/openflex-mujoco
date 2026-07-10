@@ -9,11 +9,12 @@
     加 ldjy_<side>_ 前缀（控制滑块即以此命名；同时把 ldjy_<side>_ 也列入「机械臂」分组，
     使手能与机身/底盘正确自碰撞，且不会掉进「非机械臂刚体互碰」的排除里）。
     左手复用同一套 STL，仅靠 scale="-1 1 1" 镜像。
- 3. 在 link7 与 LDJY palm 之间插入腕部中间体 ldjy_<side>_wrist，带 Z 轴旋转关节
-    ldjy_<side>_wrist_roll（wrist roll，使手可绕前臂轴独立滚动）。
+ 3. 把手根 body（ldjy_<side>_palm）以 pos="0 0 0.1415"（手掌背面手腕安装平面对齐 link7
+    电机端面 z≈0.1105）直接挂到 openarmx_<side>_link7 末端，无中间关节。左手在手腕处绕 Z
+    轴转 180° 使左右手心相对（左手网格已用 scale="-1 1 1" 镜像）。
  4. 手的视觉 geom 设为 contype=0/conaffinity=0（仅渲染），碰撞 geom（palm_collision、
-     各指 *_collision、胶囊体）设为 3/3（参与自碰撞 + 碰地板）。
- 5. 追加 42 个 position 执行器（左右手各 20 手指 + 各 1 腕部 roll，共 40+2=42）。
+    各指 *_collision、胶囊体）设为 3/3（参与自碰撞 + 碰地板）。
+ 5. 追加 40 个 position 执行器（左右手各 20 手指）。
   6. 重算接触排除：相邻父子 body 互免（防手指/关节几何重叠抖炸）+ 非机械臂刚体互免
      （机身/底盘/升降/头部之间不互碰），完全复刻自碰撞版的逻辑并纳入手部。
 
@@ -139,30 +140,15 @@ def build() -> Path:
                 if e.get("joint1") == f"openarmx_{side}_finger_joint1":
                     equality_el.remove(e)
 
-        # --- 插入手（挂在腕部 roll 关节上，使手可绕前臂 Z 轴独立旋转）---
+        # --- 插入手（palm 直接刚性挂到 link7 末端，无中间关节）---
         hand_root = load_hand(side)
         mesh_defs, hand_body, actuators = extract_hand_parts(hand_root)
-
-        # 腕部中间体：用 Z 轴 revolute 关节实现 wrist roll，使手独立于 joint7（yaw）旋转
-        wrist = ET.Element("body", {
-            "name": f"ldjy_{side}_wrist",
-            "pos": WRIST_POS,
-        })
-        ET.SubElement(wrist, "joint", {
-            "name": f"ldjy_{side}_wrist_roll",
-            "type": "hinge",
-            "axis": "0 0 1",
-            "range": "-1.5708 1.5708",
-        })
-
-        hand_body.set("pos", "0 0 0")  # palm 相对于 wrist 原点，无额外偏移
+        hand_body.set("pos", WRIST_POS)
         if side == "left":
             # 右手姿态正确，左手需在手腕处绕 Z 轴转 180°，使左右手心相对而非同向。
             # （左手网格已用 scale="-1 1 1" 镜像，叠加 180°Z 等效于再绕 Y 镜像，手心翻向 -Y。）
             hand_body.set("euler", "0 0 3.14159265")
         set_hand_collision_groups(hand_body)
-
-        wrist.append(hand_body)
 
         # mesh 定义并入 asset（去掉 MuJoCo 不识别的 content_type，按扩展名自动识别 stl）
         asset_el = root.find("asset")
@@ -170,19 +156,13 @@ def build() -> Path:
             m.attrib.pop("content_type", None)
             asset_el.append(m)
 
-        # 手指执行器 + 腕部 roll 执行器并入 actuator
+        # 手指执行器并入 actuator
         for a in actuators:
             actuator_el.append(a)
-        ET.SubElement(actuator_el, "position", {
-            "name": f"ldjy_{side}_wrist_roll_pos",
-            "joint": f"ldjy_{side}_wrist_roll",
-            "kp": "180",
-            "ctrlrange": "-1.5708 1.5708",
-        })
 
-        # 腕部挂到 link7 末端
+        # 手根挂到 link7 末端
         link7 = root.find(f".//body[@name='openarmx_{side}_link7']")
-        link7.append(wrist)
+        link7.append(hand_body)
 
     rebuild_contact(root)
     tree.write(OUT, encoding="utf-8", xml_declaration=True)
