@@ -171,3 +171,8 @@ open/close, staying inside the `0 0.044` range. Only `finger_joint1` is exposed 
 - **Gripper won't move**: make sure you use `openflex_mujoco.xml` from `convert.py`. `convert.py --check`
   should report `nu=23` (14 arm + 2 master fingers + 2 head + 1 lift + 4 steering).
 - **Wrong robot orientation**: change `ROBOT_YAW` in `convert.py` (`-1.57079632679`, i.e. -90° about Z).
+- **Build B lift / body flying up or jittering**: build B already excludes **all collisions between
+  non-arm rigid bodies** (chassis / wheels / lift column / body / head are one rigidly-mounted assembly
+  with built-in overlaps that would otherwise be shoved apart, launching the lift upward at startup), so
+  the lift / body are stable while arm collisions are kept. If you reintroduce this by editing
+  `contype/conaffinity` or removing those `<exclude>` pairs, just rerun `python3 convert.py` to restore.
