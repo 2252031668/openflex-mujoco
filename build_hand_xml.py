@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import mujoco
+import mujoco.viewer
 
 
 ROOT = Path(__file__).resolve().parent
@@ -36,12 +37,12 @@ OUT = ROOT / "openflex_mujoco_hand.xml"
 HAND_DIR = ROOT / "ldjy_hand"
 
 # 手根挂载点（相对 link7）：
-#   - link7 视觉本体 part0 经 pos/quat 偏移后，顶面（突出来的方块）在 link7 局部 z = +0.099
-#   - palm 视觉网格顶面（手背手腕安装面）位于 palm 局部 z = +0.0648
-#   - 让 palm 手背贴齐 link7 顶面下方 1mm：
-#     palm 原点 z = 0.099 - 0.001 - 0.0648 ≈ 0.033（再考虑 part0 顶面倾斜，中心点取 z=0.082）
-#     实际使用 0.018 让手背紧贴 link7 端面下沿（实测 palm 顶面 vs part0 端面 1mm 间隙）。
-WRIST_POS = "0 0 0.018"
+#   - link7 视觉本体 part0 经 pos/quat 偏移后，顶面（突出来的方块）在 link7 局部 z ≈ +0.0585
+#   - palm 视觉网格底面（手掌上侧）位于 palm 局部 z ≈ -0.0310
+#   - 让 palm 底面贴齐 link7 顶面：
+#     palm 原点 z = 0.0585 - (-0.0310) ≈ 0.0895
+#     这样圆盘下侧会与手部上侧贴合，而不是穿模进入手内部。
+WRIST_POS = "0 0 0.0895"
 
 # 机械臂分组前缀（决定哪些 body 算「机械臂」，从而参与自碰撞、不被非机械臂排除挡掉）。
 # 手的 body 也归入机械臂分组（用 ldjy_<side>_ 前缀），既能被正确命名又能与机身/底盘碰撞。
@@ -205,7 +206,11 @@ def main() -> None:
     validate(out)
     if not args.check:
         data = mujoco.MjData(mujoco.MjModel.from_xml_path(str(out)))
-        mujoco.viewer.launch(mujoco.MjModel.from_xml_path(str(out)), data)
+        try:
+            mujoco.viewer.launch(mujoco.MjModel.from_xml_path(str(out)), data)
+        except AttributeError:
+            print("⚠️ 当前 MuJoCo Python 包没有 mujoco.viewer，已跳过可视化显示。")
+            print("   你仍然可以使用 --check 生成并校验 XML 文件。")
 
 
 if __name__ == "__main__":
