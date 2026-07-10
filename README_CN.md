@@ -92,18 +92,19 @@ python3 viewer.py  --check
 | 版本 | 文件 | 说明 | 启动方式 |
 |---|---|---|---|
 | A. 仅地面碰撞（默认） | `openflex_mujoco.xml` | 机器人只与地板 / 外部物体碰撞，**连杆之间不自碰**（避免相邻视觉网格重叠抖炸） | `python3 viewer.py` |
-| B. 全面自碰撞 | `openflex_mujoco_selfcol.xml` | 使用 ROS 原始 `<collision>` 作为碰撞几何，**双臂 / 升降 / 机身 / 底盘之间全部互相碰撞** | `python3 viewer.py --self-collision` |
+| B. 全面自碰撞 | `openflex_mujoco_selfcol.xml` | 双臂 / 升降 / 机身 / 底盘之间全部互相碰撞（视觉网格直接开启碰撞，零冗余） | `python3 viewer.py --self-collision` |
 
-版本 B 的实现要点：
-- 直接解析源 URDF 的 `<collision>` 标签：图元（box / cylinder / sphere）注入为碰撞体，
-  网格碰撞则转成 `.obj` 注入；视觉网格只负责渲染（`contype=0`）。
+版本 B 的实现要点（已优化，无冗余）：
+- **直接让视觉网格 geom 本身参与碰撞**：MuJoCo 的 mesh geom 本来就同时负责渲染与碰撞，
+  `contype/conaffinity` 只决定「碰不碰」。所以只需把视觉网格的碰撞分组从 `2/1`（只碰地板）
+  改为 `3/3`（与一切碰撞），每个 link 一个 geom 同时渲染 + 碰撞，**无需再生成一套重叠的碰撞网格**。
+- 因为底盘大平台（base_link 视觉网格）也随之一起碰撞，手臂压到机身/底盘上会被挡住。
 - 相邻关节的父子 body 之间加 `<exclude>`，避免关节处几何重叠导致的抖炸；
   非相邻的（如左臂 ↔ 右臂、臂 ↔ 机身 / 底盘、臂 ↔ 升降柱）正常碰撞。
-- `convert.py` 默认会**同时生成两个版本**；版本 B 依赖 `packages/` 子模块里的碰撞网格，
-  若缺失会构建失败但仅警告（不影响版本 A）。
+- `convert.py` 默认会**同时生成两个版本**。
 
 > 想用版本 B 时，克隆后直接 `python3 viewer.py --self-collision` 即可（成品已提交）；
-> 若想用 OpenFleX 最新模型重建版本 B，需先 `git submodule update --init --recursive`。
+> 若想用 OpenFleX 最新模型重建，需先 `git submodule update --init --recursive`。
 
 ---
 

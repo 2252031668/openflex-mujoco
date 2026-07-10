@@ -39,8 +39,6 @@ SOURCE_URDF = ROOT / "openflex_integrated_robot.urdf"
 OUTPUT_XML = ROOT / "openflex_mujoco.xml"
 # 全面自碰撞版本（使用 ROS 原始 <collision> 作为碰撞几何）
 OUTPUT_SELFCOL_XML = ROOT / "openflex_mujoco_selfcol.xml"
-# 注入到 MJCF 的碰撞 geom 名前缀，便于后处理识别
-COLLISION_GEOM_PREFIX = "col_"
 MUJOCO_MESH_DIR = ROOT / "mujoco_meshes"
 PACKAGES_DIR = ROOT / "packages"
 
@@ -401,26 +399,6 @@ def apply_joint_dynamics(root: ET.Element) -> None:
         joint.set("frictionloss", str(friction))
 
 
-def _origin_xyz_rpy(el: ET.Element) -> tuple[str, str]:
-    """读取 <origin xyz rpy>，缺省为 0 0 0。"""
-    o = el.find("origin")
-    if o is None:
-        return "0 0 0", "0 0 0"
-    return o.get("xyz", "0 0 0"), o.get("rpy", "0 0 0")
-
-
-def _add_primitive_geom(body: ET.Element, name: str, gtype: str,
-                        size: list[float], xyz: str, rpy: str) -> None:
-    attrs = {"name": name, "type": gtype, "pos": xyz, "euler": rpy}
-    if gtype == "box":
-        attrs["size"] = " ".join(str(v) for v in size)      # MuJoCo box size = 半边长
-    elif gtype == "cylinder":
-        attrs["size"] = f"{size[0]} {size[1]}"               # [半径, 半高]
-    elif gtype == "sphere":
-        attrs["size"] = str(size[0])                         # 半径
-    ET.SubElement(body, "geom", attrs)
-
-
 def _add_actuators_and_equality(root: ET.Element, model: mujoco.MjModel) -> tuple[int, int]:
     """夹爪联动 equality + position actuator（两个 builder 共用）。"""
     equality = root.find("equality")
@@ -570,85 +548,28 @@ def build_runtime_xml() -> Path:
 
 
 def build_selfcol_xml() -> Path:
-    """版本 B：使用 ROS 原始 <collision> 作为碰撞几何，双臂/升降/机身/底盘之间全部自碰撞。
+    """版本 B：双臂/升降/机身/底盘之间全面自碰撞。
 
-    - 图元碰撞（box/cylinder/sphere）直接注入对应 link 的 body；
-    - 网格碰撞转成 .obj 注入（复用 convert_visual_mesh）；
-    - 视觉网格仅负责渲染（contype=0）；
+    优化（消除冗余）：直接让『视觉网格 geom 本身』参与碰撞——MuJoCo 的 mesh geom
+    本来就同时负责渲染与碰撞，contype/conaffinity 只决定碰不碰。因此无需再生成一套
+    与视觉网格重叠的碰撞网格（之前那版既重复又需透明隐藏）。
+
+    好处：
+    - 零冗余：每个 link 一个 geom 同时渲染+碰撞，删掉重复 obj 与透明 hack；
+    - 底盘大平台（base_link 视觉网格）自动获得碰撞体积，手臂推到机身上会被挡住；
     - 相邻关节的父子 body 加 <exclude>，避免关节处几何重叠抖炸；
     - 非相邻的（左臂↔右臂、臂↔机身/底盘、臂↔升降柱）正常碰撞。
+
+    代价：碰撞使用精细视觉网格的三角形（精确但比简化碰撞网格稍慢），viewer 交互足够。
     """
     tree, model, _ = build_base_mjcf()
     root = tree.getroot()
-    asset_el = root.find("asset")
-    body_by_name = {b.get("name"): b for b in root.findall(".//body")}
 
-    src = ET.parse(SOURCE_URDF).getroot()
-    injected = 0
-    skipped = []
-    for link in src.findall("link"):
-        ln = link.get("name")
-        cols = link.findall("collision")
-        if not cols:
-            continue
-        body = body_by_name.get(ln)
-        if body is None:
-            skipped.append(ln)
-            continue
-        for i, col in enumerate(cols):
-            geo = col.find("geometry")
-            if geo is None:
-                continue
-            prim = list(geo)[0]
-            xyz, rpy = _origin_xyz_rpy(col)
-            if prim.tag == "box":
-                half = [float(v) / 2.0 for v in prim.get("size").split()]
-                _add_primitive_geom(body, f"{COLLISION_GEOM_PREFIX}{ln}_{i}", "box", half, xyz, rpy)
-                injected += 1
-            elif prim.tag == "cylinder":
-                r = float(prim.get("radius"))
-                half_len = float(prim.get("length")) / 2.0
-                _add_primitive_geom(body, f"{COLLISION_GEOM_PREFIX}{ln}_{i}", "cylinder",
-                                    [r, half_len], xyz, rpy)
-                injected += 1
-            elif prim.tag == "sphere":
-                _add_primitive_geom(body, f"{COLLISION_GEOM_PREFIX}{ln}_{i}", "sphere",
-                                    [float(prim.get("radius"))], xyz, rpy)
-                injected += 1
-            elif prim.tag == "mesh":
-                fn = prim.get("filename", "")
-                sc = parse_scale(prim.get("scale", ""))
-                try:
-                    parts = convert_visual_mesh(fn, sc)
-                except FileNotFoundError as e:
-                    print(f"⚠️ 碰撞网格缺失，跳过 {ln}: {e}")
-                    continue
-                for j, (path, _color) in enumerate(parts):
-                    aname = f"{COLLISION_GEOM_PREFIX}{ln}_{i}_m{j}"
-                    ET.SubElement(asset_el, "mesh",
-                                  {"name": aname, "file": path,
-                                   "scale": " ".join(str(abs(v)) for v in sc)})
-                    ET.SubElement(body, "geom",
-                                  {"name": f"{COLLISION_GEOM_PREFIX}{ln}_{i}_m{j}",
-                                   "type": "mesh", "mesh": aname,
-                                   "pos": xyz, "euler": rpy})
-                    injected += 1
-            else:
-                print(f"⚠️ 未支持碰撞几何类型 {prim.tag} @ {ln}")
-
-    # 碰撞分组：注入的碰撞 geom 与所有东西碰撞(contype=3/conaffinity=3)；
-    # 视觉网格仅渲染(contype=0/conaffinity=0)；地板 world+robot。
-    # 关键：碰撞 geom 设为不可见(rgba 全透明)，否则图元/碰撞网格会被渲染出来，
-    # 表现为『多出4个轮子/机身box』，且与视觉网格重叠造成双臂闪烁(z-fighting)。
+    # 视觉网格 geom 由『只碰地板(2/1)』改为『与一切碰撞(3/3)』，开启自碰撞。
     for geom in root.findall(".//geom"):
-        nm = geom.get("name", "")
-        if nm.startswith(COLLISION_GEOM_PREFIX):
+        if geom.get("type") == "mesh":
             geom.set("contype", "3")
             geom.set("conaffinity", "3")
-            geom.set("rgba", "0 0 0 0")
-        elif geom.get("type") == "mesh":
-            geom.set("contype", "0")
-            geom.set("conaffinity", "0")
     floor = root.find(".//geom[@name='floor']")
     if floor is not None:
         floor.set("contype", "1")
@@ -658,9 +579,7 @@ def build_selfcol_xml() -> Path:
     apply_joint_dynamics(root)
     eq, act = _add_actuators_and_equality(root, model)
     tree.write(OUTPUT_SELFCOL_XML, encoding="utf-8", xml_declaration=True)
-    if skipped:
-        print(f"⚠️ 以下 link 在 MJCF 中找不到对应 body，已跳过碰撞: {skipped}")
-    print(f"✅ [版本B:全面自碰撞] 注入碰撞 geom: {injected} | 相邻关节 exclude: {excl} | 夹爪联动: {eq} | actuator: {act}")
+    print(f"✅ [版本B:全面自碰撞] 视觉网格直接碰撞 | 相邻关节 exclude: {excl} | 夹爪联动: {eq} | actuator: {act}")
     return OUTPUT_SELFCOL_XML
 
 
