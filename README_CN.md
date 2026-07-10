@@ -111,6 +111,44 @@ python3 viewer.py  --check
 
 ---
 
+## 🖐️ 6. 带灵巧手版本（hand）
+
+在版本 B（全面自碰撞）之上，把原 OpenFlex 夹爪替换成 **LDJY 灵巧手**（左/右手各 20 关节），
+得到 `openflex_mujoco_hand.xml`，`viewer.py` **默认打开的就是这个版本**：
+
+```bash
+python3 viewer.py            # 默认：带手 + 全面自碰撞（左手/右手各 20 关节 + 双臂/头/升降/转向，共 61 执行器）
+python3 viewer.py --check    # 仅校验可加载
+python3 viewer.py --plain        # 版本A：仅地面碰撞（无手）
+python3 viewer.py --self-collision  # 版本B：原夹爪 + 全身自碰撞（无手）
+```
+
+手模型素材放在 `ldjy_hand/`：
+
+- `ldjy_left_hand.xml` / `ldjy_right_hand.xml`：左/右手 MJCF（左手复用同一套 STL，仅 `scale="-1 1 1"` 镜像）
+- `ldjy_hand/meshes/`：一份网格（`palm/finger*/thumb*` 视觉 STL + `*_collision` 碰撞 STL）
+
+构建方式（纯 XML 手术，不依赖 `packages/` 子模块，直接读已提交的自碰撞成品）：
+
+```bash
+python3 build_hand_xml.py     # 生成 openflex_mujoco_hand.xml
+```
+
+实现要点：
+
+- 删掉每条臂末端的原夹爪（`openarmx_<side>_hand` 子树 + `finger_joint1/2` 执行器 + mimic 联动），
+  把 LDJY 手根 `openarmx_<side>_palm` 以原挂载点 `pos="0 0 0.1001"` 挂到 `openarmx_<side>_link7` 末端。
+- 手的所有 body/joint/geom/mesh/actuator 名字加 `openarmx_<side>_` 前缀，因此被归入「机械臂」分组：
+  既能与机身/底盘正确自碰撞，又不会被「非机械臂刚体互碰」排除挡掉。
+- 手的视觉 geom 仅渲染（`contype=0/conaffinity=0`），碰撞 geom（`palm_collision`、各指 `*_collision`、
+  胶囊体）开启碰撞（`3/3`），所以手能碰机身/底盘/地板，手指间靠相邻父子 body 互免避免抖炸。
+- 追加 40 个手指 position 执行器（左右手各 20），`viewer` 会把 `ctrl` 初始化为当前 `qpos`，手指不跳变。
+
+> 手的根坐标系（手指沿 +Z 延伸）默认即沿臂的向外方向挂载；若视觉上觉得朝向需要翻转，
+> 调整 `build_hand_xml.py` 里 `WRIST_POS` 旁的手根 `euler` 即可重新生成。
+
+---
+
 ## 📦 3. 依赖
 
 - `mujoco`、`trimesh`、`pycollada`（见 `requirements.txt` / `pyproject.toml`）
@@ -136,6 +174,9 @@ python3 viewer.py  --check
 │   ├── openarmx_description/        #   -> OpenFleX-Wheeled-Humanoid/openarmx_description
 │   └── openarmx_head_description/   #   -> OpenFleX-Wheeled-Humanoid/openarmx_head_description
 ├── openflex_mujoco.xml              # 成品(已提交)：自包含成品 MJCF（含 actuator/联动/地板/灯光）
+├── openflex_mujoco_hand.xml         # 成品(已提交)：带灵巧手 + 全面自碰撞的成品 MJCF（viewer 默认打开）
+├── build_hand_xml.py                # 构建程序：在自碰撞成品基础上把夹爪替换为 LDJY 灵巧手
+├── ldjy_hand/                       # 手模型素材：左/右手 MJCF + 一份 mesh（视觉 + 碰撞 STL）
 └── mujoco_meshes/                   # 成品(已提交)：转换后的 MuJoCo 友好网格（.obj，相对路径引用）
 ```
 
