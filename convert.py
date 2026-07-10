@@ -638,11 +638,14 @@ def build_selfcol_xml() -> Path:
 
     # 碰撞分组：注入的碰撞 geom 与所有东西碰撞(contype=3/conaffinity=3)；
     # 视觉网格仅渲染(contype=0/conaffinity=0)；地板 world+robot。
+    # 关键：碰撞 geom 设为不可见(rgba 全透明)，否则图元/碰撞网格会被渲染出来，
+    # 表现为『多出4个轮子/机身box』，且与视觉网格重叠造成双臂闪烁(z-fighting)。
     for geom in root.findall(".//geom"):
         nm = geom.get("name", "")
         if nm.startswith(COLLISION_GEOM_PREFIX):
             geom.set("contype", "3")
             geom.set("conaffinity", "3")
+            geom.set("rgba", "0 0 0 0")
         elif geom.get("type") == "mesh":
             geom.set("contype", "0")
             geom.set("conaffinity", "0")
