@@ -376,7 +376,7 @@ FLOOR_LIGHTS = """<light name="key_light" pos="-1.4 -2.2 3.2" dir="0.35 0.55 -1"
        diffuse="0.35 0.45 0.65" specular="0.12 0.12 0.16"/>
 <light name="rim_light" pos="0 2.2 1.8" dir="0 -1 -0.45" directional="true"
        diffuse="0.55 0.65 0.85" specular="0.20 0.22 0.28"/>
-<geom name="floor" type="plane" pos="0 0 0" size="2.4 2.4 0.02" material="floor_mat"/>"""
+<geom name="floor" type="plane" pos="0 0 0" size="2.4 2.4 0.02" material="floor_mat" contype="1" conaffinity="3"/>"""
 
 
 # --------------------------------------------------------------------------- #
@@ -451,6 +451,15 @@ def build_runtime_xml() -> Path:
     lights_root = ET.fromstring(f"<root>{FLOOR_LIGHTS}</root>")
     for child in lights_root:
         worldbody.append(child)
+
+    # 5.5) 打开机器人网格几何的碰撞：落地 / 碰外物，但关闭自碰撞
+    #   机器人 geom: contype=2(bit1, 仅属 robot 组) conaffinity=1(bit0, 只与世界组碰)
+    #   地板 geom:   contype=1 conaffinity=3(世界+robot 组) —— 见 FLOOR_LIGHTS 中的 floor
+    #   → 机器人与地板/外物正常碰撞；各连杆之间互不碰撞(避免相邻视觉网格重叠导致抖炸)
+    for geom in root.findall(".//geom"):
+        if geom.get("type") == "mesh":
+            geom.set("contype", "2")
+            geom.set("conaffinity", "1")
 
     apply_joint_dynamics(root)
 

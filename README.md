@@ -102,7 +102,9 @@ during conversion.
 
 ### `convert.py`
 Converter only (no display):
-1. Strips `<ros2_control>`, drops collision, adds default inertia to moving links that lack it
+1. Strips `<ros2_control>`; the URDF `<collision>` tags are dropped and the visual meshes double as
+   collision geoms (collide with the floor / external objects, self-collision between links disabled to
+   avoid jitter from overlapping adjacent visual meshes); adds default inertia to moving links that lack it
 2. Converts every visual mesh (`.dae` / any `.stl` incl. ASCII) to `.obj` via trimesh (keeps colors, bakes negative scale)
 3. Compiles to a MuJoCo model and serializes to MJCF
 4. Merges floor + studio-style lights
