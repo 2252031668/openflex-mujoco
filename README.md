@@ -67,6 +67,31 @@ python3 viewer.py  --check
 
 ---
 
+## 💥 Two collision builds
+
+The repo ships two output models, differing in whether the robot's own parts collide with
+each other:
+
+| Build | File | Description | Launch |
+|---|---|---|---|
+| A. Floor-only (default) | `openflex_mujoco.xml` | Robot collides only with the floor / external objects; **no self-collision** between links (avoids jitter from overlapping adjacent visual meshes) | `python3 viewer.py` |
+| B. Full self-collision | `openflex_mujoco_selfcol.xml` | Uses the ROS original `<collision>` tags as collision geoms; **arms / lift / body / chassis all collide with each other** | `python3 viewer.py --self-collision` |
+
+How build B works:
+- It parses the source URDF's `<collision>` tags directly: primitives (box / cylinder / sphere)
+  are injected as collision geoms, mesh collisions are converted to `.obj` and injected; visual
+  meshes are render-only (`contype=0`).
+- Adjacent parent-child bodies (joints) get `<exclude>` pairs to avoid jitter from overlapping
+  geometry at the joint; non-adjacent pairs (e.g. left arm ↔ right arm, arm ↔ body / chassis,
+  arm ↔ lift column) collide normally.
+- `convert.py` builds **both versions by default**; build B needs the collision meshes inside
+  `packages/` submodules and will only warn (not fail) if they are missing.
+
+> To use build B, just `python3 viewer.py --self-collision` after cloning (the output is committed);
+> to rebuild B from the latest OpenFleX models, run `git submodule update --init --recursive` first.
+
+---
+
 ## 🗂️ Structure
 
 ```bash
