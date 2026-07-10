@@ -35,12 +35,11 @@ SRC = ROOT / "openflex_mujoco_selfcol.xml"
 OUT = ROOT / "openflex_mujoco_hand.xml"
 HAND_DIR = ROOT / "ldjy_hand"
 
-# 手根挂载点（相对 link7）：link7 视觉网格端面在本地 z≈0.1105。
-# palm 网格 z 范围 [-0.031, +0.0648]。要让 palm 顶面（手背 z=+0.0648）
-# 在 link7 端面下方约 0.01m（palm 套在 link7 端面下、顶面与端面齐平或略低），
-# palm 原点 z ≈ 0.1105 - 0.0648 - 0.01 = 0.0357。
-# 留 0.01m 重叠避免视觉上脱缝，同时 palm 不会整只穿进 link7 电机壳。
-WRIST_POS = "0 0 0.0357"
+# 手根挂载点（相对 link7）：link7 视觉网格（灰色外壳 part0）端面在本地 z≈0.1105。
+# palm 网格 z 范围 [-0.031, +0.0648]。让 palm 顶面（手背 z=+0.0648）
+# 与 link7 端面下方约 0.005m 处重合（避免视觉脱缝、避免穿进 link7 内部）。
+# palm 原点 z ≈ 0.1105 - 0.0648 - 0.005 = 0.0407。
+WRIST_POS = "0 0 0.0407"
 
 # 机械臂分组前缀（决定哪些 body 算「机械臂」，从而参与自碰撞、不被非机械臂排除挡掉）。
 # 手的 body 也归入机械臂分组（用 ldjy_<side>_ 前缀），既能被正确命名又能与机身/底盘碰撞。
@@ -125,10 +124,14 @@ def build() -> Path:
     equality_el = root.find("equality")
 
     for side in ("left", "right"):
-        # --- 清 link7 末端空 body (pico) ---
-        # 蓝色圆柱 part1 是手腕插销的视觉，**保留**：参考图里蓝色圆盘是连接标志。
-        # 空 body link7_pico：被 palm 节点取代后无意义，删。
+        # --- 清 link7 末端的电机装饰 ---
+        # 蓝色圆柱 part1（rgba=0.3 0.7 1）= 末端电机装饰圆盘，参考图里没有，需要去掉。
+        # 灰色外壳 part0 = link7 真正的视觉本体，保留。
+        # 空 body link7_pico = 占位空 body，palm 接管后无意义，删。
         link7 = root.find(f".//body[@name='openarmx_{side}_link7']")
+        for g in list(link7.findall("geom")):
+            if g.get("mesh", "").endswith("_part1"):
+                link7.remove(g)
         pico = root.find(f".//body[@name='openarmx_{side}_link7_pico']")
         if pico is not None and pico in list(link7):
             link7.remove(pico)
