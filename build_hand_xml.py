@@ -164,20 +164,6 @@ def build() -> Path:
         link7.append(hand_body)
 
     rebuild_contact(root)
-
-    # 确保初始「正面 + 胸高」相机（name=front）存在：插入到 worldbody 第一个位置，成为第 0 个相机。
-    # 注意：MuJoCo 3.10 的 MJCF schema 不接受 <global cameraid="..."/> 属性，故相机启用由
-    # viewer.py 在运行时设置 model.vis.global_.cameraid 完成（见 viewer.py）。
-    wb = root.find("worldbody")
-    if wb is not None and wb.find(".//camera[@name='front']") is None:
-        cam = ET.Element("camera", {
-            "name": "front",
-            "pos": "0 -4.0 1.1",
-            "xyaxes": "1 0 0 0 0 1",
-            "fovy": "50",
-        })
-        wb.insert(0, cam)
-
     tree.write(OUT, encoding="utf-8", xml_declaration=True)
     return OUT
 

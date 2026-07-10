@@ -287,17 +287,23 @@ python3 convert.py --check
 
 ### 6. 默认相机视角（正面 + 胸高）
 
-采用 **MuJoCo 官方最简方式**：`viewer.launch(model, data)`（标准窗口、有关闭按钮、自带物理循环）。
+采用 **MuJoCo `launch_passive` + 代码初始化相机** 的最简方式（和你给的样例一致）：
 
-初始视角由 XML 里定义的 `<camera name="front">` 决定——它放在机器人**正前方（-Y，由头部前置
-RGBD 相机 `camera_link` 位于最 -Y 侧确认）、与胸部齐平**的位置。MuJoCo 3.10 的 MJCF schema 不
-接受 `<global cameraid="..."/>` 属性，所以相机启用改在 `viewer.py` 里**运行时**设置
-`model.vis.global_.cameraid` 指向 `front`（启动时即以该正面胸高视角显示）。
+```python
+viewer = mujoco.viewer.launch_passive(model, data)
+init_front_camera(model, viewer.cam)        # 启动后、循环前初始化相机
+while viewer.is_running():
+    mujoco.mj_step(model, data)
+    viewer.sync()
+```
 
-- 想换默认朝向/距离：改 `viewer.py` 中 `front_id = mujoco.mj_name2id(..., "front")` 前的相机参数，
-  或直接改三个成品 XML / `build_hand_xml.py` 里 `<camera name="front">` 的 `pos`/`xyaxes`/`fovy`。
-- **自由旋转**：打开后是 Fixed 初始视角（锁定在正面胸高）。如需鼠标自由旋转，在右侧 UI 把
-  Camera 模式从 `Fixed` 切到 `Free`（或按 `Tab` 切换面板后调整），即可任意拖拽旋转 / 缩放。
+- 相机**不在 XML 里写**，而是在 `viewer.py` 的 `init_front_camera()` 里用代码设置：
+  - 类型 `mjCAMERA_FREE`（打开即**可鼠标自由旋转/缩放**，默认就是自由视角，无需切 UI）。
+  - 位置在机器人**正前方（-Y，由头部前置 RGBD 相机 `camera_link` 位于最 -Y 侧确认）、与胸部齐平**
+    （`chest_link` 世界高度）。
+  - 计算方式：先 `mj_forward` 取所有 body 的 `xpos`，Y 中心作为 `lookat` 的 Y，胸高作为 `lookat` 的 Z。
+- **想手动调初始视角**：直接改 `viewer.py` 里 `init_front_camera` 的 `cam.lookat` / `distance` /
+  `azimuth` / `elevation` 即可（例如 `distance=4.0` 远近、`azimuth=-90` 正面、`elevation` 俯仰）。
 - 机器人整体朝向仍由 `convert.py` 的 `ROBOT_YAW` 控制，改 `ROBOT_YAW` 后相机也会跟着绕到对应正面。
 
 ---
