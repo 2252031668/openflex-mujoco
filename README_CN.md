@@ -287,11 +287,18 @@ python3 convert.py --check
 
 ### 6. 默认相机视角（正面 + 胸高）
 
-`viewer.py` 启动后用 `launch_passive` 把自由相机初始放到机器人**正前方（-Y）、与胸部齐平**
-的位置（仍可鼠标自由旋转 / 缩放）。正面方向由头部前置 RGBD 相机 `camera_link`（位于最 -Y 侧）
-确定；胸高取 `chest_link` 世界高度。若想换默认朝向，改 `viewer.py` 里 `set_front_camera` 的
-`azimuth`（正面 180°）/`distance`/`elevation` 即可。注意：机器人整体朝向仍由 `convert.py`
-的 `ROBOT_YAW` 控制，改 `ROBOT_YAW` 后相机也会跟着绕到对应正面。
+采用 **MuJoCo 官方最简方式**：`viewer.launch(model, data)`（标准窗口、有关闭按钮、自带物理循环）。
+
+初始视角由 XML 里定义的 `<camera name="front">` 决定——它放在机器人**正前方（-Y，由头部前置
+RGBD 相机 `camera_link` 位于最 -Y 侧确认）、与胸部齐平**的位置。MuJoCo 3.10 的 MJCF schema 不
+接受 `<global cameraid="..."/>` 属性，所以相机启用改在 `viewer.py` 里**运行时**设置
+`model.vis.global_.cameraid` 指向 `front`（启动时即以该正面胸高视角显示）。
+
+- 想换默认朝向/距离：改 `viewer.py` 中 `front_id = mujoco.mj_name2id(..., "front")` 前的相机参数，
+  或直接改三个成品 XML / `build_hand_xml.py` 里 `<camera name="front">` 的 `pos`/`xyaxes`/`fovy`。
+- **自由旋转**：打开后是 Fixed 初始视角（锁定在正面胸高）。如需鼠标自由旋转，在右侧 UI 把
+  Camera 模式从 `Fixed` 切到 `Free`（或按 `Tab` 切换面板后调整），即可任意拖拽旋转 / 缩放。
+- 机器人整体朝向仍由 `convert.py` 的 `ROBOT_YAW` 控制，改 `ROBOT_YAW` 后相机也会跟着绕到对应正面。
 
 ---
 

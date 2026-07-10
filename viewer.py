@@ -35,30 +35,6 @@ def seed_actuator_controls(model, data) -> None:
         data.ctrl[actuator_id] = data.qpos[qpos_id]
 
 
-def set_front_camera(model, cam) -> None:
-    """把自由相机放到机器人正前方(-Y)、与胸部齐平的初始位姿（仍可自由旋转）。
-
-    正面方向由头部前置 RGBD 相机(camera_link 位于最 -Y 侧)确认；胸高取 chest_link 世界高度。
-    """
-    data = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
-    ys, zs = [], []
-    for i in range(model.nbody):
-        p = data.xpos[i]
-        ys.append(p[1]); zs.append(p[2])
-    cy = (min(ys) + max(ys)) / 2          # 机器人水平中心 Y
-    # 胸部高度：优先 chest_link，否则取整体高度中上部
-    try:
-        cid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "chest_link")
-        chest_z = data.xpos[cid][2]
-    except Exception:
-        chest_z = (min(zs) + max(zs)) / 2
-    cam.lookat[:] = [0.0, cy, chest_z * 0.95]
-    cam.distance = 2.0
-    cam.azimuth = 180.0   # 相机位于 -Y（机器人正面）
-    cam.elevation = 0.0   # 与胸部齐平（lookat 高度已含胸部，相机本身水平）
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenFlex MuJoCo 原生 viewer")
     parser.add_argument("--check", action="store_true", help="只校验可加载，不打开窗口")
@@ -89,11 +65,9 @@ def main() -> None:
     if args.check:
         return
 
-    handle = mujoco.viewer.launch_passive(model, data)
-    set_front_camera(model, handle.cam)   # 初始面向机器人正面、胸高（仍可自由旋转）
-    while handle.is_running():
-        mujoco.mj_step(model, data)
-        handle.sync()
+    # 官方最简方式：launch 阻塞式 viewer（标准窗口、有关闭按钮、自带物理循环与渲染）。
+    # 初始相机视角由 XML 里的 <camera name="front"> + <visual><global cameraid="front"/> 决定（正面+胸高）。
+    mujoco.viewer.launch(model, data)
 
 
 if __name__ == "__main__":
