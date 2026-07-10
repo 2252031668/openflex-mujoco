@@ -287,7 +287,7 @@ python3 convert.py --check
 
 ### 6. 视角与交互
 
-直接用 MuJoCo 托管式 ``viewer.launch(model, data)`` 打开：标准窗口、鼠标可旋转/缩放，
+直接用 MuJoCo 托管式 ``viewer.launch(model, data)`` 打开：标准窗口、可关闭、鼠标可旋转/缩放，
 初始视角由 MuJoCo 自动取景（框住整个机器人）。无需在 XML 或代码里额外配置相机。
 机器人整体朝向由 ``convert.py`` 的 ``ROBOT_YAW`` 控制。
 
