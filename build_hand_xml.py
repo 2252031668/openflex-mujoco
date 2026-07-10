@@ -35,11 +35,13 @@ SRC = ROOT / "openflex_mujoco_selfcol.xml"
 OUT = ROOT / "openflex_mujoco_hand.xml"
 HAND_DIR = ROOT / "ldjy_hand"
 
-# 手根挂载点（相对 link7）：link7 视觉网格（灰色外壳 part0）端面在本地 z≈0.1105。
-# palm 网格 z 范围 [-0.031, +0.0648]。让 palm 顶面（手背 z=+0.0648）
-# 与 link7 端面下方约 0.005m 处重合（避免视觉脱缝、避免穿进 link7 内部）。
-# palm 原点 z ≈ 0.1105 - 0.0648 - 0.005 = 0.0407。
-WRIST_POS = "0 0 0.0407"
+# 手根挂载点（相对 link7）：
+#   - link7 视觉本体 part0 经 pos/quat 偏移后，端面在 link7 局部 z ≈ +0.069 ~ +0.099
+#     （palm 顶面应该贴 link7 端面圆盘的底沿，即 z=+0.069）
+#   - palm 视觉网格顶面在 palm 局部 z = +0.0648
+#   - 让 palm 顶面（手背）与 link7 端面底沿下方 0.003m 处重合：
+#     palm 原点 z = 0.069 - 0.003 - 0.0648 = 0.0012 ≈ 0.001
+WRIST_POS = "0 0 0.001"
 
 # 机械臂分组前缀（决定哪些 body 算「机械臂」，从而参与自碰撞、不被非机械臂排除挡掉）。
 # 手的 body 也归入机械臂分组（用 ldjy_<side>_ 前缀），既能被正确命名又能与机身/底盘碰撞。
