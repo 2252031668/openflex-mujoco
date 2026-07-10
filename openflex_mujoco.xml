@@ -70,6 +70,7 @@
 </asset>
 
   <worldbody>
+  <camera name="front" mode="fixed"/>
     <body name="openflex_robot_yaw_root" pos="0 0 0.17" euler="0 0 -1.57079632679"><body name="base_link">
       <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="20" diaginertia="0.683333 0.449333 0.299333" />
       <geom quat="0.707105 0.707108 0 0" type="mesh" contype="2" conaffinity="1" group="1" density="0" rgba="0.28 0.28 0.28 1" mesh="packages_openflex_chassis_swerve_description_meshes_base_link" />
