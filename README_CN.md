@@ -32,56 +32,52 @@ viewer 只负责加载显示，不再依赖任何运行时中间文件。
 
 ## 🚀 2. 快速开始
 
-本项目用 [uv](https://docs.astral.sh/uv/) 管理环境（也兼容普通 pip）：
+### 2.1 克隆仓库
+
+```bash
+git clone <本仓库地址> openflex_mujoco
+cd openflex_mujoco
+git lfs pull
+```
+
+> 仓库中的网格文件（`.obj` / `.stl`）通过 Git LFS 管理，**必须执行 `git lfs pull`** 才能拉取完整文件。
+
+### 2.2 安装依赖
 
 ```bash
 uv sync
 # 或： python3 -m pip install -r requirements.txt
 ```
 
-环境自检：
+### 2.3 运行
+
+本仓库**已提交** `openflex_mujoco_hand.xml`、`openflex_mujoco.xml` 与 `mujoco_meshes/`，
+克隆后**无需运行 `convert.py`** 就能直接用 viewer 打开：
 
 ```bash
-python3 -c "import mujoco, mujoco.viewer, numpy, trimesh; print('MuJoCo environment OK')"
-```
-
-### 获取仓库与运行
-
-本仓库**已提交** `openflex_mujoco.xml` 与 `mujoco_meshes/`，因此克隆后**无需运行 `convert.py`**
-就能直接用 viewer 看模型：
-
-```bash
-# 普通克隆即可直接查看（推荐，最简单）
-git clone <本仓库地址> openflex_mujoco
-cd openflex_mujoco
-python3 viewer.py            # 直接打开已生成的成品模型
+python3 viewer.py            # 带灵巧手 + 全面自碰撞（推荐，默认）
+python3 viewer.py --plain    # 仅地面碰撞原版（无手）
+python3 viewer.py --check    # 仅校验可加载
 ```
 
 若想用 **OpenFleX 上游最新模型**重新构建（而不是用仓库里已提交的成品），
 需要**递归克隆**以拉取 `packages/` 下的 4 个 git 子模块，再重跑转换：
 
 ```bash
-# 递归克隆：额外拉取 packages/ 的 4 个子模块（描述文件来自 OpenFleX-Wheeled-Humanoid org）
 git clone --recursive <本仓库地址> openflex_mujoco
 cd openflex_mujoco
+git lfs pull
 
 # 仅拉取子模块（已克隆过主仓库、忘了 --recursive 时）：
 git submodule update --init --recursive
 
-# 用最新上游模型重新生成 openflex_mujoco.xml + mujoco_meshes/
+# 用最新上游模型重新生成
 python3 convert.py
 python3 viewer.py
 ```
 
 > 注意：未递归克隆时 `packages/` 为空，`convert.py` 会因找不到源网格而失败；
-> 此时直接用仓库已提交的成品 XML + viewer 即可（见上面的「普通克隆」）。
-
-只校验生成 / 加载、不打开窗口：
-
-```bash
-python3 convert.py --check
-python3 viewer.py  --check
-```
+> 此时直接用仓库已提交的成品 XML + viewer 即可（见上面的普通克隆）。
 
 ---
 
