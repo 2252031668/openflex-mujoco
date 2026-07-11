@@ -57,16 +57,18 @@ git clone --recursive <this-repo-url> openflex_mujoco
 cd openflex_mujoco
 git lfs pull
 
-# Pull submodules only (if you already cloned without --recursive):
-git submodule update --init --recursive
+# Fetch the latest submodule code from remote (--remote fetches and checks out the latest remote commit):
+git submodule update --init --recursive --remote
 
 # Rebuild from the latest upstream models
 python3 convert.py
 python3 viewer.py
 ```
 
-> Without a recursive clone, `packages/` is empty and `convert.py` fails (no source meshes). In that
-> case just use the committed output XML + viewer (see plain clone above).
+> - `git submodule update --init --recursive`: restores submodules to the commit recorded in the main repo (not necessarily latest)
+> - `git submodule update --init --recursive --remote`: fetches and checks out the latest code from submodule remote
+> - Without a recursive clone, `packages/` is empty and `convert.py` fails (no source meshes). In that
+>   case just use the committed output XML + viewer (see plain clone above).
 
 ---
 

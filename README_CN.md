@@ -70,16 +70,18 @@ git clone --recursive <本仓库地址> openflex_mujoco
 cd openflex_mujoco
 git lfs pull
 
-# 仅拉取子模块（已克隆过主仓库、忘了 --recursive 时）：
-git submodule update --init --recursive
+# 拉取子模块远程最新代码（--remote 会 fetch 并切换到子模块远程最新 commit）：
+git submodule update --init --recursive --remote
 
 # 用最新上游模型重新生成
 python3 convert.py
 python3 viewer.py
 ```
 
-> 注意：未递归克隆时 `packages/` 为空，`convert.py` 会因找不到源网格而失败；
-> 此时直接用仓库已提交的成品 XML + viewer 即可（见上面的普通克隆）。
+> - `git submodule update --init --recursive`：仅恢复到主仓库记录的子模块 commit（不一定最新）
+> - `git submodule update --init --recursive --remote`：拉取子模块远程最新代码并切换
+> - 注意：未递归克隆时 `packages/` 为空，`convert.py` 会因找不到源网格而失败；
+>   此时直接用仓库已提交的成品 XML + viewer 即可（见上面的普通克隆）。
 
 ---
 
