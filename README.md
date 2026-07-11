@@ -29,14 +29,17 @@ uv sync
 python3 -c "import mujoco, mujoco.viewer, trimesh; print('MuJoCo environment OK')"
 ```
 
-This repo **commits** `openflex_mujoco.xml` and `mujoco_meshes/`, so after cloning you can open the
-model with the viewer **without running `convert.py`**:
+This repo **commits** `openflex_mujoco_hand.xml`, `openflex_mujoco.xml` and `mujoco_meshes/`, so
+after cloning you can open the model with the viewer **without running `convert.py`**:
 
 ```bash
 # Plain clone — ready to view immediately (recommended, simplest)
 git clone <this-repo-url> openflex_mujoco
 cd openflex_mujoco
-python3 viewer.py            # open the already-built output model
+git lfs pull
+uv run python3 viewer.py            # hands + full self-collision (recommended, default)
+uv run python3 viewer.py --plain    # floor-only collision, no hands
+uv run python3 viewer.py --check    # validate only (no window)
 ```
 
 To rebuild from the **latest OpenFleX upstream models**, clone **recursively** to pull the 5 git
@@ -46,18 +49,22 @@ submodules under `packages/`, then re-run the compilation and conversion:
 # Recursive clone: also fetches the 5 packages/ submodules (descriptions from OpenFleX-Wheeled-Humanoid org)
 git clone --recursive <this-repo-url> openflex_mujoco
 cd openflex_mujoco
+git lfs pull
 
 # Pull submodules only (if you already cloned without --recursive):
 git submodule update --init --recursive --remote
 
 # Step 1: compile xacro → URDF (with latest joint definitions & parameters)
-python3 build_urdf.py
+uv run python3 build_urdf.py
 
 # Step 2: URDF → MuJoCo (same as before)
-python3 convert.py
+uv run python3 convert.py
 
-# Step 3: view
-python3 viewer.py
+# Step 3: rebuild hands
+uv run python3 build_hand_xml.py
+
+# Step 4: view
+uv run python3 viewer.py
 ```
 
 > - `git submodule update --init --recursive`: restores submodules to the commit recorded in the main repo (not necessarily latest)
@@ -70,9 +77,56 @@ python3 viewer.py
 Check only (no window):
 
 ```bash
-python3 convert.py --check
-python3 viewer.py  --check
+uv run python3 convert.py --check
+uv run python3 viewer.py  --check
 ```
+
+---
+
+## 🖐️ Dexterous Hand Build (LDJY)
+
+On top of Build B (full self-collision), replace the original OpenFlex grippers with **LDJY dexterous
+hands** (20 joints per hand). `openflex_mujoco_hand.xml` is the default model opened by `viewer.py`:
+
+```bash
+uv run python3 viewer.py            # Default: hands + full self-collision (20 joints/hand + arms/head/lift/steering = 61 actuators)
+uv run python3 viewer.py --check    # Validate only (no window)
+uv run python3 viewer.py --plain        # Build A: floor-only collision (no hands)
+uv run python3 viewer.py --self-collision  # Build B: original grippers + full self-collision (no hands)
+```
+
+Hand assets in `ldjy_hand/`:
+
+- `ldjy_left_hand.xml` / `ldjy_right_hand.xml`: left/right hand MJCF (left reuses same STLs, mirrored with `scale="-1 1 1"`)
+- `ldjy_hand/meshes/`: one mesh set (`palm/finger*/thumb*` visual STLs + `*_collision` collision STLs)
+
+Build (pure XML surgery, no `packages/` submodules required — reads the committed self-collision output):
+
+```bash
+uv run python3 build_hand_xml.py     # generate openflex_mujoco_hand.xml
+```
+
+Key implementation details:
+
+- Remove the original gripper on each arm (entire `openarmx_<side>_hand` subtree + `finger_joint1/2` actuators + mimic coupling),
+  then mount LDJY palm root at `pos="0 0 0.1415"` on `openarmx_<side>_link7` tip
+  (palm mesh's back (mounting plane) is at local z≈-0.031; link7 visual mesh wrist motor face at z≈0.1105,
+  so palm origin at `0.1105 + 0.031 = 0.1415` aligns the mounting plane with the motor face)
+- All hand body/joint/geom/mesh/actuator names prefixed with `ldjy_<side>_` (clean slider naming);
+  `ldjy_<side>_` also included in the "arm" group: collides with body/chassis, and not blocked by
+  "non-arm rigid body" mutual exclusion
+- Hand visual geoms render only (`contype=0/conaffinity=0`); collision geoms (`palm_collision`, each finger `*_collision`,
+  capsules) participate in collision (`3/3`) with alpha=0 **fully transparent** — only collide, never render —
+  to avoid z-fighting with visual meshes at the same location
+- Hand postures: right hand correct; left hand wrist rotated 180° about Z (`euler="0 0 3.14159265"`),
+  making palms face each other (left mesh already mirrored via `scale="-1 1 1"`, combined 180°Z yields an effective Y-mirror,
+  palm faces -Y)
+- 40 finger position actuators total (20 per hand, `ldjy_<side>_finger*/thumb*_joint*_actuator`),
+  `viewer` initializes `ctrl` from current `qpos` so fingers don't jump
+
+> If the palm root clips or floats relative to the motor, adjust `WRIST_POS` in `build_hand_xml.py`
+> (Z value = distance from wrist plane to motor face); if left hand orientation needs tweaking,
+> change the left-hand `euler` next to `WRIST_POS` and rebuild.
 
 ---
 
@@ -122,6 +176,9 @@ How build B works (optimized, no redundancy):
 │   ├── openarmx_head_description/   #   -> OpenFleX-Wheeled-Humanoid/openarmx_head_description
 │   └── openarmx_integrated_description/  # -> integration xacro source (robot joint connections)
 ├── openflex_mujoco.xml              # Output (committed): self-contained MJCF (actuators / coupling / floor / lights)
+├── openflex_mujoco_hand.xml         # Output (committed): MJCF with LDJY hands + full self-collision (viewer default)
+├── build_hand_xml.py                # Builder: replaces grippers with LDJY dexterous hands on the self-collision output
+├── ldjy_hand/                       # Hand assets: left/right MJCF + one mesh set (visual + collision STLs)
 └── mujoco_meshes/                   # Output (committed): converted MuJoCo-friendly meshes (.obj, relative paths)
 ```
 
