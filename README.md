@@ -14,56 +14,59 @@ files.
 
 ## 🖼️ Preview
 
-![OpenFlex MuJoCo viewer 效果图](assets/1.png)
+![OpenFlex MuJoCo viewer 效果图](assets/1.gif)
 
 ---
 
 ## 🚀 Quick Start
+
+### 2.1 Clone
+
+```bash
+git clone <this-repo-url> openflex_mujoco
+cd openflex_mujoco
+git lfs pull
+```
+
+> Mesh files (`.obj` / `.stl`) are managed via Git LFS — **you must run `git lfs pull`** to fetch
+> the full files.
+
+### 2.2 Install
 
 ```bash
 uv sync
 # or: python3 -m pip install -r requirements.txt
 ```
 
-```bash
-python3 -c "import mujoco, mujoco.viewer, trimesh; print('MuJoCo environment OK')"
-```
+### 2.3 Run
 
-This repo **commits** `openflex_mujoco.xml` and `mujoco_meshes/`, so after cloning you can open the
-model with the viewer **without running `convert.py`**:
+This repo **commits** `openflex_mujoco.xml`, `openflex_mujoco_selfcol.xml` and `mujoco_meshes/`,
+so after cloning you can open the model with the viewer **without running `convert.py`**:
 
 ```bash
-# Plain clone — ready to view immediately (recommended, simplest)
-git clone <this-repo-url> openflex_mujoco
-cd openflex_mujoco
-python3 viewer.py            # open the already-built output model
+python3 viewer.py                      # floor-only collision (default)
+python3 viewer.py --self-collision     # full self-collision
+python3 viewer.py --check              # check only, no window
 ```
 
 To rebuild from the **latest OpenFleX upstream models**, clone **recursively** to pull the 4 git
 submodules under `packages/`, then re-run the conversion:
 
 ```bash
-# Recursive clone: also fetches the 4 packages/ submodules (descriptions from OpenFleX-Wheeled-Humanoid org)
 git clone --recursive <this-repo-url> openflex_mujoco
 cd openflex_mujoco
+git lfs pull
 
 # Pull submodules only (if you already cloned without --recursive):
 git submodule update --init --recursive
 
-# Rebuild openflex_mujoco.xml + mujoco_meshes/ from the latest upstream models
+# Rebuild from the latest upstream models
 python3 convert.py
 python3 viewer.py
 ```
 
 > Without a recursive clone, `packages/` is empty and `convert.py` fails (no source meshes). In that
-> case just use the committed output XML + viewer (see "Plain clone" above).
-
-Check only (no window):
-
-```bash
-python3 convert.py --check
-python3 viewer.py  --check
-```
+> case just use the committed output XML + viewer (see plain clone above).
 
 ---
 
