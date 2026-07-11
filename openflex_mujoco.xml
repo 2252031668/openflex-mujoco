@@ -159,7 +159,7 @@
       <body name="lift_base_link" pos="-0.033 0 0.07" quat="0.707105 0 0 -0.707108">
         <inertial pos="4.73423e-05 -0.017555 0.663555" quat="0.707116 0.000552974 -0.00055296 0.707097" mass="9.62227" diaginertia="1.49187 1.46902 0.0318312" />
         <geom type="mesh" contype="2" conaffinity="1" group="1" density="0" rgba="0.48 0.48 0.5 1" mesh="packages_lift_slide_description_meshes_lift_link" />
-        <body name="lift_carriage_link" pos="0 0 0.81">
+        <body name="lift_carriage_link" pos="0 0.055 0.81">
           <inertial pos="-0.00061635 0.0527963 0.0200912" quat="0.706475 0.000381723 -0.000356955 0.707737" mass="2.32322" diaginertia="0.00863611 0.00730306 0.00642289" />
           <joint name="lift_joint" pos="0 0 0" axis="0 0 1" type="slide" range="-0.65 0.3" actuatorfrcrange="-3000 3000" damping="60.0" frictionloss="2.0" armature="0.1" />
           <geom type="mesh" contype="2" conaffinity="1" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="packages_lift_slide_description_meshes_plate_link" />

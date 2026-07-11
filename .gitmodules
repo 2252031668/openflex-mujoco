@@ -14,3 +14,7 @@
 	path = packages/openarmx_head_description
 	url = https://github.com/OpenFleX-Wheeled-Humanoid/openarmx_head_description.git
 	branch = v1.0_basic
+[submodule "packages/openarmx_integrated_description"]
+	path = packages/openarmx_integrated_description
+	url = https://github.com/OpenFleX-Wheeled-Humanoid/openarmx_integrated_description.git
+	branch = v1.0_basic
