@@ -39,24 +39,33 @@ cd openflex_mujoco
 python3 viewer.py            # open the already-built output model
 ```
 
-To rebuild from the **latest OpenFleX upstream models**, clone **recursively** to pull the 4 git
-submodules under `packages/`, then re-run the conversion:
+To rebuild from the **latest OpenFleX upstream models**, clone **recursively** to pull the 5 git
+submodules under `packages/`, then re-run the compilation and conversion:
 
 ```bash
-# Recursive clone: also fetches the 4 packages/ submodules (descriptions from OpenFleX-Wheeled-Humanoid org)
+# Recursive clone: also fetches the 5 packages/ submodules (descriptions from OpenFleX-Wheeled-Humanoid org)
 git clone --recursive <this-repo-url> openflex_mujoco
 cd openflex_mujoco
 
 # Pull submodules only (if you already cloned without --recursive):
-git submodule update --init --recursive
+git submodule update --init --recursive --remote
 
-# Rebuild openflex_mujoco.xml + mujoco_meshes/ from the latest upstream models
+# Step 1: compile xacro → URDF (with latest joint definitions & parameters)
+python3 build_urdf.py
+
+# Step 2: URDF → MuJoCo (same as before)
 python3 convert.py
+
+# Step 3: view
 python3 viewer.py
 ```
 
-> Without a recursive clone, `packages/` is empty and `convert.py` fails (no source meshes). In that
-> case just use the committed output XML + viewer (see "Plain clone" above).
+> - `git submodule update --init --recursive`: restores submodules to the commit recorded in the main repo (not necessarily latest)
+> - `git submodule update --init --recursive --remote`: fetches and checks out the latest code from submodule remote
+> - `build_urdf.py` compiles URDF from the xacro source in the `openarmx_integrated_description` submodule,
+>   so joint connections and definitions always match the latest upstream (only needs `pip install xacro`, no full ROS2)
+> - Without a recursive clone, `packages/` is empty and `convert.py` fails (no source meshes). In that
+>   case just use the committed output XML + viewer (see "Plain clone" above).
 
 Check only (no window):
 
@@ -102,22 +111,26 @@ How build B works (optimized, no redundancy):
 
 ```bash
 .
+├── build_urdf.py                    # Compiler: xacro → URDF (from latest submodule sources)
 ├── convert.py                       # Converter: URDF -> self-contained MJCF
 ├── viewer.py                        # Native MuJoCo viewer (loads the output XML)
-├── openflex_integrated_robot.urdf   # Source: full-body ROS2 URDF
-├── packages/                        # Source: 4 git submodules (OpenFleX upstream descriptions, not in main history)
+├── openflex_integrated_robot.urdf   # Intermediate: compiled full-body URDF
+├── packages/                        # Source: 5 git submodules (OpenFleX upstream descriptions, not in main history)
 │   ├── openflex_chassis/            #   -> base_model_interface_layer (contains swerve_description)
 │   ├── lift_slide_description/      #   -> OpenFleX-Wheeled-Humanoid/lift_slide_description
 │   ├── openarmx_description/        #   -> OpenFleX-Wheeled-Humanoid/openarmx_description
-│   └── openarmx_head_description/   #   -> OpenFleX-Wheeled-Humanoid/openarmx_head_description
+│   ├── openarmx_head_description/   #   -> OpenFleX-Wheeled-Humanoid/openarmx_head_description
+│   └── openarmx_integrated_description/  # -> integration xacro source (robot joint connections)
 ├── openflex_mujoco.xml              # Output (committed): self-contained MJCF (actuators / coupling / floor / lights)
 └── mujoco_meshes/                   # Output (committed): converted MuJoCo-friendly meshes (.obj, relative paths)
 ```
 
 `openflex_mujoco.xml` and `mujoco_meshes/` are **committed to the repo**, so a plain clone opens directly
-in the viewer with no need to rerun `convert.py`; rebuild and rerun `convert.py` only when you want the
-latest upstream models (requires a recursive clone of the `packages/` submodules). The source description
-files in `packages/` are referenced as **git submodules** (from
+in the viewer with no need to rerun `build_urdf.py` + `convert.py`; rebuild only when you want the
+latest upstream models (requires a recursive clone of the `packages/` submodules).
+`build_urdf.py` compiles URDF from the xacro source in the `openarmx_integrated_description` submodule,
+ensuring joint connections always match the latest upstream.
+The source description files in `packages/` are referenced as **git submodules** (from
 `https://github.com/orgs/OpenFleX-Wheeled-Humanoid/repositories`) and are not stored in this repo's history,
 keeping the main repository lightweight.
 
@@ -125,9 +138,17 @@ keeping the main repository lightweight.
 
 ## 📘 Files
 
+### `build_urdf.py`
+
+Compiles `openflex_integrated_robot.urdf` from upstream xacro sources without a full ROS2 environment.
+
+By injecting a fake `ament_index_python` module, `$(find ...)` in xacro resolves automatically to the local `packages/` submodules.
+After upstream changes to joint connections or parameters, just `git submodule update --remote` + `python3 build_urdf.py` to get the latest URDF.
+
 ### `openflex_integrated_robot.urdf`
-Source full-body URDF (base + lift + dual arms + head) exported from ROS2. It references several
-`package://<pkg>/` meshes, which `convert.py` maps to the local `packages/<pkg>/` directory. Gripper
+Full-body URDF (base + lift + dual arms + head), compiled by `build_urdf.py` from
+`packages/openarmx_integrated_description/urdf/openarmx_integrated_robot.urdf.xacro`.
+It references several `package://<pkg>/` meshes, which `convert.py` maps to the local `packages/<pkg>/` directory. Gripper
 coupling uses `<mimic>`, which MuJoCo's URDF importer **silently drops**, so coupling is re-added
 during conversion.
 

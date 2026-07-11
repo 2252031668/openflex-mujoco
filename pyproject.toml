@@ -8,6 +8,7 @@ dependencies = [
     "mujoco>=3.6.0",
     "trimesh>=4.11.5",
     "pycollada>=0.9.3",
+    "xacro>=2.1",
 ]
 
 [tool.uv]

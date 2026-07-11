@@ -61,23 +61,32 @@ python3 viewer.py --check    # 仅校验可加载
 ```
 
 若想用 **OpenFleX 上游最新模型**重新构建（而不是用仓库里已提交的成品），
-需要**递归克隆**以拉取 `packages/` 下的 4 个 git 子模块，再重跑转换：
+需要**递归克隆**以拉取 `packages/` 下的 5 个 git 子模块，再重新编译转换：
 
 ```bash
 git clone --recursive <本仓库地址> openflex_mujoco
 cd openflex_mujoco
 git lfs pull
 
-# 仅拉取子模块（已克隆过主仓库、忘了 --recursive 时）：
-git submodule update --init --recursive
+# 拉取子模块远程最新代码（--remote 会 fetch 并切换到子模块远程最新 commit）：
+git submodule update --init --recursive --remote
 
-# 用最新上游模型重新生成
+# 步骤 1: 编译 xacro → URDF（用最新连接关系与参数）
+python3 build_urdf.py
+
+# 步骤 2: URDF → MuJoCo（与之前一样）
 python3 convert.py
+
+# 步骤 3: 查看
 python3 viewer.py
 ```
 
-> 注意：未递归克隆时 `packages/` 为空，`convert.py` 会因找不到源网格而失败；
-> 此时直接用仓库已提交的成品 XML + viewer 即可（见上面的普通克隆）。
+> - `git submodule update --init --recursive`：仅恢复到主仓库记录的子模块 commit（不一定最新）
+> - `git submodule update --init --recursive --remote`：拉取子模块远程最新代码并切换
+> - `build_urdf.py` 从 `openarmx_integrated_description` 子模块的 xacro 源文件编译 URDF，
+>   确保连接关系、关节定义等始终与上游最新一致（仅需 `pip install xacro`，无需完整 ROS2）
+> - 注意：未递归克隆时 `packages/` 为空，`convert.py` 会因找不到源网格而失败；
+>   此时直接用仓库已提交的成品 XML + viewer 即可（见上面的普通克隆）。
 
 ---
 
@@ -154,7 +163,7 @@ python3 build_hand_xml.py     # 生成 openflex_mujoco_hand.xml
 
 ## 📦 3. 依赖
 
-- `mujoco`、`trimesh`、`pycollada`（见 `requirements.txt` / `pyproject.toml`）
+- `mujoco`、`trimesh`、`pycollada`、`xacro`（见 `requirements.txt` / `pyproject.toml`）
 - 若 `.dae` 转换失败，检查网格转换链：
   ```bash
   python3 -c "import trimesh, collada; print('mesh conversion deps OK')"
@@ -168,14 +177,16 @@ python3 build_hand_xml.py     # 生成 openflex_mujoco_hand.xml
 .
 ├── README_CN.md
 ├── README.md
+├── build_urdf.py                    # 编译脚本：xacro → URDF（用最新子模块源文件）
 ├── convert.py                       # 转换程序：URDF -> 自包含成品 MJCF
 ├── viewer.py                        # 原生 MuJoCo viewer（加载成品 XML）
-├── openflex_integrated_robot.urdf   # 源：ROS2 导出的完整全身 URDF
-├── packages/                        # 源：4 个 git 子模块（OpenFleX 上游描述文件，不进主仓库历史）
+├── openflex_integrated_robot.urdf   # 中间产物：编译后的完整全身 URDF
+├── packages/                        # 源：5 个 git 子模块（OpenFleX 上游描述文件，不进主仓库历史）
 │   ├── openflex_chassis/            #   -> base_model_interface_layer（含 swerve_description）
 │   ├── lift_slide_description/      #   -> OpenFleX-Wheeled-Humanoid/lift_slide_description
 │   ├── openarmx_description/        #   -> OpenFleX-Wheeled-Humanoid/openarmx_description
-│   └── openarmx_head_description/   #   -> OpenFleX-Wheeled-Humanoid/openarmx_head_description
+│   ├── openarmx_head_description/   #   -> OpenFleX-Wheeled-Humanoid/openarmx_head_description
+│   └── openarmx_integrated_description/  # -> 集成 xacro 源文件（含机器人连接关系定义）
 ├── openflex_mujoco.xml              # 成品(已提交)：自包含成品 MJCF（含 actuator/联动/地板/灯光）
 ├── openflex_mujoco_hand.xml         # 成品(已提交)：带灵巧手 + 全面自碰撞的成品 MJCF（viewer 默认打开）
 ├── build_hand_xml.py                # 构建程序：在自碰撞成品基础上把夹爪替换为 LDJY 灵巧手
@@ -183,8 +194,9 @@ python3 build_hand_xml.py     # 生成 openflex_mujoco_hand.xml
 └── mujoco_meshes/                   # 成品(已提交)：转换后的 MuJoCo 友好网格（.obj，相对路径引用）
 ```
 
-> `openflex_mujoco.xml` 与 `mujoco_meshes/` **已提交到仓库**，克隆即直接用 viewer 打开，无需重跑 `convert.py`；
-> 仅当你想用 OpenFleX 上游最新模型重建时才需要 `git clone --recursive` 拉取 `packages/` 子模块并重跑 `convert.py`。
+> `openflex_mujoco.xml` 与 `mujoco_meshes/` **已提交到仓库**，克隆即直接用 viewer 打开，无需重跑 `build_urdf.py` + `convert.py`；
+> 仅当你想用 OpenFleX 上游最新模型重建时才需要 `git clone --recursive` 拉取 `packages/` 子模块并重跑这些脚本。
+> `build_urdf.py` 从 `openarmx_integrated_description` 子模块的 `.urdf.xacro` 编译 URDF，确保连接关系始终与上游最新一致。
 > 源描述文件（`packages/`）以 **git 子模块**方式引用（来自 `https://github.com/orgs/OpenFleX-Wheeled-Humanoid/repositories`），
 > 不进入本仓库历史，因此主仓库保持精简。
 
@@ -192,12 +204,20 @@ python3 build_hand_xml.py     # 生成 openflex_mujoco_hand.xml
 
 ## 📘 5. 核心文件说明
 
+### `build_urdf.py`
+
+从上游 xacro 源文件编译 `openflex_integrated_robot.urdf`，不依赖完整 ROS2 环境。
+
+通过注入假的 `ament_index_python` 模块，让 xacro 的 `$(find ...)` 解析自动映射到本地 `packages/` 子模块。
+上游修改了连接关系、关节定义或参数后，只需 `git submodule update --remote` + `python3 build_urdf.py` 即可获得最新 URDF。
+
 ### `openflex_integrated_robot.urdf`
 
-ROS2 导出的完整全身 URDF（底盘 + 升降 + 双臂 + 头部），是整个工程的输入。它引用了多个
-`package://<pkg>/` 前缀的网格，转换时由 `convert.py` 自动映射到本地 `packages/<pkg>/`。
-其中夹爪用 `<mimic>` 描述联动，但 MuJoCo 的 URDF 导入器会**静默丢弃**该标签，所以联动在
-转换时单独补回。
+完整全身 URDF（底盘 + 升降 + 双臂 + 头部），由 `build_urdf.py` 从
+`packages/openarmx_integrated_description/urdf/openarmx_integrated_robot.urdf.xacro` 编译生成，
+是整个工程的输入。它引用了多个 `package://<pkg>/` 前缀的网格，转换时由 `convert.py` 自动映射到本地
+`packages/<pkg>/`。其中夹爪用 `<mimic>` 描述联动，但 MuJoCo 的 URDF 导入器会**静默丢弃**该标签，
+所以联动在转换时单独补回。
 
 ### `convert.py`
 
